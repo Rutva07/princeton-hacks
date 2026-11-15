@@ -1,6 +1,7 @@
 
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
+import MarkdownMessage from './MarkdownMessage.jsx';
 import {
   Activity, ArrowRight, Atom, Beaker, BookOpen, Check, Circle, CircleAlert,
   FlaskConical, Hash, History, Link2, LoaderCircle, Menu, PanelRightClose,
@@ -650,7 +651,7 @@ function Message({message, currentUser, job, onRun, activity}) {
           </div>
 
           <div className="agent-text">
-            <RichText>{message.content}</RichText>
+            <MarkdownMessage>{message.content}</MarkdownMessage>
           </div>
 
           {(message.kind === 'experiment_result' || job?.status !== 'completed') && (
@@ -682,7 +683,9 @@ function Message({message, currentUser, job, onRun, activity}) {
         </div>
 
         <div className={`bubble ${agent ? 'agent-bubble' : ''}`}>
-          <RichText>{message.content}</RichText>
+          {agent
+            ? <MarkdownMessage>{message.content}</MarkdownMessage>
+            : <RichText>{message.content}</RichText>}
         </div>
       </div>
     </div>
