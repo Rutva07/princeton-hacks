@@ -23,3 +23,98 @@
 @media(max-width:1080px){.app-shell{grid-template-columns:225px minmax(420px,1fr) 290px}.conversation,.composer{padding-left:32px;padding-right:32px}.traffic-result{grid-template-columns:130px 1fr}}
 @media(max-width:820px){.app-shell{display:block;position:relative}.left-sidebar,.right-sidebar{position:fixed;top:0;bottom:0;width:min(320px,88vw);transition:transform .25s ease;box-shadow:0 0 50px #0b171250}.left-sidebar{left:0;transform:translateX(-105%)}.right-sidebar{right:0;transform:translateX(105%);z-index:30}.left-sidebar.mobile-open,.right-sidebar.mobile-open{transform:translateX(0)}.chat-pane{height:100%;border:0}.mobile-close,.mobile-menu,.mobile-right{display:grid}.mobile-close{margin-left:auto}.mobile-scrim{display:block;position:fixed;inset:0;background:#13221b88;z-index:15;opacity:0;pointer-events:none;transition:.2s}.mobile-scrim.show{opacity:1;pointer-events:auto}.empty-rooms,.loading-room{height:100%}.signin-shell{grid-template-columns:1fr}.signin-visual{display:none}.signin-card{padding:40px}.member-faces{display:none}}
 @media(max-width:540px){.room-header{padding:0 12px;gap:8px}.invite-chip{font-size:0;width:32px;padding:8px}.conversation{padding:0 15px 22px}.composer{padding:8px 12px 13px}.conversation-intro{padding:35px 5px 27px}.conversation-intro h1{font-size:26px}.message-row{max-width:96%}.agent-card-row{max-width:100%}.traffic-result{grid-template-columns:1fr}.network-diagram svg{height:105px}.experiment-spec{align-items:flex-start}.signin-card{padding:28px}.signin-card h1{font-size:46px}.signin-notes{flex-direction:column;gap:9px}.empty-rooms h1{font-size:35px}.composer-hint span{display:none}}
+
+
+
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.conversation {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+
+
+/* ==========================================
+   CAUSALFORGE — SCROLL FIX
+   Preserve original three-column layout
+   ========================================== */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Preserve existing grid columns and widths */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Prevent panels from exceeding their grid cells */
+.left-sidebar,
+.chat-pane,
+.right-sidebar {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Middle chat: independent scrolling */
+.chat-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-pane .conversation {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+
+/* Right sidebar: independent scrolling */
+.right-sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-sidebar > header,
+.right-sidebar > .right-tabs,
+.right-sidebar > footer {
+  flex-shrink: 0;
+}
+
+.right-sidebar .right-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent long source content from stretching panels */
+.right-sidebar .source-list,
+.right-sidebar .source-list a,
+.right-sidebar .source-list a > div {
+  min-width: 0;
+}
+
+.right-sidebar .source-list a strong,
+.right-sidebar .source-list a p {
+  overflow-wrap: anywhere;
+}
