@@ -70,13 +70,16 @@ async def research(job_id):
             'evidence_level':p.get('evidence_level','')} for p in papers])
         storage.emit(job_id,'review','Scientific Critic','Approval required before using compute. Real results do not exist yet.')
         storage.set_status(job_id,'awaiting_approval')
-        await notify(job_id,f'CausalForge found {len(papers)} sources and proposed two small '
-                     f'training recipes. Reply APPROVE {job_id} to run the real toy experiment '
-                     f'(max {job["budget"]} sec), or REJECT {job_id}.', 'approval')
+        plans='\n'.join(recipe['name'] for recipe in recipes if recipe.get('name'))[:600]
+        links='\n'.join(f'{paper["title"][:150]}\n{paper["url"][:300]}' for paper in papers[:3])
+        await notify(job_id,f'Proposed experiment\n{plans}\n\n'
+                     f'{len(papers)} sources found.\n{links}\n\n'
+                     f'Reply APPROVE {job_id} to run the bounded experiment or REJECT {job_id}.', 'approval')
     except Exception as e:
         log.exception('Research error')
         storage.set_status(job_id,'failed',str(e)[:500])
         storage.emit(job_id,'failed','Supervisor',f'Research failed: {e}')
+        await notify(job_id,f'Research job {job_id} failed. Try sending the question again.', 'failed')
 
 async def approve(job_id, accept=True):
     job=storage.get_job(job_id)

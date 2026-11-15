@@ -68,16 +68,32 @@ Native WebSockets power website chat. The app works with:
 PHOTON_ENABLED=false
 ```
 
-If Photon Beta credentials are available, enable the existing adapter explicitly:
+On the machine running the backend, install the optional Photon Beta SDK:
+
+```bash
+.venv/bin/python -m pip install -r backend/requirements-photon.txt
+```
+
+In the repo-root `.env`, set the credentials from the Photon Beta project
+that owns your assigned iMessage line:
 
 ```dotenv
 PHOTON_ENABLED=true
 PHOTON_PROJECT_ID=pho_prj_your_project_id
 PHOTON_API_KEY=pho_sk_your_project_key
 PHOTON_POLLING_ENABLED=true
+PHOTON_PLATFORM=imessage
+PHOTON_ALLOW_GROUPS=false
+PHOTON_ALLOWED_SENDERS=+15555550100
 ```
 
-Photon is not required, is not used as a search service, and native WebSockets alone do not imply Photon sponsor eligibility.
+Replace the example sender with your registered iMessage phone number or
+Apple Account email. Restart the backend and run one poller for the project.
+Text “Can adding a road increase traffic congestion?” to your assigned line.
+After the proposal arrives, reply `APPROVE <job-id>` using the ID in the proposal.
+The backend runs its bounded traffic simulation and texts the measured result.
+These jobs use the same research pipeline as the web app and have their own
+iMessage conversation. Polling uses outbound HTTPS and requires no webhook.
 
 ## WebSocket contract
 

@@ -22,6 +22,7 @@ class Settings:
     photon_key: str = os.getenv('PHOTON_API_KEY', '')
     photon_project: str = os.getenv('PHOTON_PROJECT_ID', '')
     photon_poll_enabled: bool = truthy('PHOTON_POLLING_ENABLED')
+    photon_platform: str = os.getenv('PHOTON_PLATFORM', '').strip().lower().replace('-', '_')
     photon_groups: bool = truthy('PHOTON_ALLOW_GROUPS')
     photon_poll_seconds: int = max(3, int(os.getenv('PHOTON_POLL_SECONDS', '8')))
     photon_allowed_senders: tuple[str, ...] = tuple(x.strip() for x in os.getenv('PHOTON_ALLOWED_SENDERS', '').split(',') if x.strip())

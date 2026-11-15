@@ -104,7 +104,8 @@ def get_job(job_id):
 
 def list_jobs():
     with connection() as c:
-        return [dict(r) for r in c.execute('SELECT * FROM jobs ORDER BY created_at DESC LIMIT 50')]
+        return [dict(r) for r in c.execute(
+            'SELECT * FROM jobs WHERE origin_space IS NULL ORDER BY created_at DESC LIMIT 50')]
 
 def emit(job_id, stage, agent, message):
     with _lock,connection() as c:

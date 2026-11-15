@@ -1,14 +1,16 @@
 # Local Photon iMessage test
 
 This standalone Python test uses the Photon 2.0 Beta REST API. It needs no
-CausalForge server, database, tunnel, or Python packages.
+CausalForge server, database, or tunnel. It uses the official Photon Python SDK.
 
 Run from this folder:
 
 ```sh
 python3 -m unittest -v
-python3 smoke.py --check
-python3 smoke.py
+python3 -m venv /tmp/causalforge-photon-sdk
+/tmp/causalforge-photon-sdk/bin/python -m pip install photonhq-api==0.5.0
+/tmp/causalforge-photon-sdk/bin/python smoke.py --check
+/tmp/causalforge-photon-sdk/bin/python smoke.py
 ```
 
 Use the project ID and key for your active iMessage line in the

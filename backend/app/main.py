@@ -41,7 +41,7 @@ async def inbound_message(message):
     text=message['text']
     command=re.fullmatch(r'\s*(APPROVE|REJECT)\s+([a-f0-9]{10})\s*',text,re.I)
     if command:
-        job=storage.get_job(command.group(2))
+        job=storage.get_job(command.group(2).lower())
         # Only accept approval from the same Photon Space where job originated.
         if not job or job['origin_space']!=message['space_id']:
             await send_message(message['space_id'],message['sender_id'],
@@ -50,16 +50,18 @@ async def inbound_message(message):
         ok,state=await approve(job['id'],command.group(1).upper()=='APPROVE')
         await send_message(message['space_id'],message['sender_id'],
               f'Experiment {job["id"]}: {state}.',f'researchforge-decision-{message["id"]}')
-    elif len(text)>=12:
+    elif 12<=len(text)<=2000 and not re.match(r'^\s*(APPROVE|REJECT)\b',text,re.I):
         origin={'space_id':message['space_id'],'sender_id':message['sender_id'],'message_id':message['id']}
         job_id=storage.add_job(text,90,origin=origin)
-        await send_message(message['space_id'],message['sender_id'],
-            f'CausalForge started job {job_id}. I will send a plan and ask before using compute.',
-            f'researchforge-start-{message["id"]}',parent_id=message['id'])
-        asyncio.create_task(research(job_id))
+        try:
+            await send_message(message['space_id'],message['sender_id'],
+                f'CausalForge started job {job_id}. I will send a plan and ask before using compute.',
+                f'researchforge-start-{message["id"]}',parent_id=message['id'])
+        finally:
+            asyncio.create_task(research(job_id))
     else:
         await send_message(message['space_id'],message['sender_id'],
-            'Send a research question (at least 12 characters) or APPROVE <job-id>.',
+            'Send a research question (12–2000 characters), APPROVE <job-id>, or REJECT <job-id>.',
             f'researchforge-help-{message["id"]}')
 
 @asynccontextmanager
@@ -173,12 +175,13 @@ async def jobs():
 @app.get('/api/jobs/{job_id}')
 async def job_detail(job_id:str):
     job=storage.get_job(job_id)
-    if not job:raise HTTPException(404,'Job not found')
+    if not job or job['origin_space']:raise HTTPException(404,'Job not found')
     return {'job':job,'events':storage.get_events(job_id),'artifacts':storage.get_artifacts(job_id)}
 
 @app.post('/api/jobs/{job_id}/decision')
 async def decide(job_id:str,decision:Decision):
-    if not storage.get_job(job_id):raise HTTPException(404,'Job not found')
+    job=storage.get_job(job_id)
+    if not job or job['origin_space']:raise HTTPException(404,'Job not found')
     ok,state=await approve(job_id,decision.approve)
     if not ok:raise HTTPException(409,'Experiment is not awaiting approval')
     return {'id':job_id,'status':state}
