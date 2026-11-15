@@ -116,7 +116,7 @@ def test_natural_language_research_and_experiment_execution():
             assert result['results']['candidate']['average_travel_time'] > result['results']['baseline']['average_travel_time']
 
 
-async def stub_langchain_answer(question,room_context):
+async def stub_langchain_answer(question,room_context,room_id=None):
     return {'text':'The strongest starting point is [A key paper](https://example.org/paper).',
             'papers':[{'id':'paper:1','title':'A key paper','url':'https://example.org/paper',
                        'summary':'Relevant abstract evidence.','evidence_level':'metadata/abstract'}],
@@ -287,7 +287,7 @@ def test_research_index_backfills_old_artifacts_once(tmp_path,monkeypatch):
 
 
 def test_chatbot_reading_list_saves_every_returned_source():
-    async def answer_with_many_sources(question,room_context):
+    async def answer_with_many_sources(question,room_context,room_id=None):
         return {'text':'Research complete.',
             'papers':[{'title':f'Paper {n}','url':f'https://example.org/paper/{n}'} for n in range(18)],
             'web_results':[{'title':f'Web {n}','url':f'https://example.org/web/{n}'} for n in range(9)]}
@@ -319,4 +319,3 @@ def test_experiment_reading_list_saves_every_returned_paper():
         assert storage.get_job(job_id)['status']=='awaiting_approval'
         assert len(storage.get_artifacts(job_id)['reading_list.json'])==18
         assert len(collect_research(client,room['id'],owner['token'],'sources'))==18
-

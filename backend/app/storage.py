@@ -62,6 +62,42 @@ def init_db():
            created_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_room_events_room_seq ON room_events(room_id,seq);
         CREATE INDEX IF NOT EXISTS idx_room_messages_room_time ON room_messages(room_id,created_at);
+        CREATE TABLE IF NOT EXISTS experiment_jobs (
+           id TEXT PRIMARY KEY, room_id TEXT NOT NULL, requested_by TEXT NOT NULL,
+           request TEXT NOT NULL, intent TEXT NOT NULL, status TEXT NOT NULL,
+           stage TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0,
+           plan TEXT, result TEXT, report TEXT, parent_experiment_id TEXT,
+           cancel_requested INTEGER NOT NULL DEFAULT 0, retry_count INTEGER NOT NULL DEFAULT 0,
+           max_retries INTEGER NOT NULL, runtime_limit INTEGER NOT NULL,
+           memory_mb INTEGER NOT NULL, cpu_cores REAL NOT NULL,
+           worker_id TEXT, heartbeat_at TEXT, created_at TEXT NOT NULL,
+           updated_at TEXT NOT NULL, started_at TEXT, completed_at TEXT, error TEXT);
+        CREATE INDEX IF NOT EXISTS idx_experiment_queue ON experiment_jobs(status,created_at);
+        CREATE INDEX IF NOT EXISTS idx_experiment_room ON experiment_jobs(room_id,created_at);
+        CREATE TABLE IF NOT EXISTS experiment_attempts (
+           id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL, attempt_no INTEGER NOT NULL,
+           status TEXT NOT NULL, exit_code INTEGER, code_hash TEXT, logs TEXT,
+           error TEXT, started_at TEXT NOT NULL, completed_at TEXT, runtime_seconds REAL,
+           container_name TEXT, executor_image TEXT, command TEXT, metadata TEXT,
+           UNIQUE(experiment_id,attempt_no));
+        CREATE TABLE IF NOT EXISTS experiment_events (
+           seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE,
+           experiment_id TEXT NOT NULL, room_id TEXT NOT NULL, event_type TEXT NOT NULL,
+           payload TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_experiment_events_seq ON experiment_events(seq);
+        CREATE INDEX IF NOT EXISTS idx_experiment_events_job ON experiment_events(experiment_id,seq);
+        CREATE TABLE IF NOT EXISTS experiment_artifacts (
+           id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL, attempt_no INTEGER,
+           kind TEXT NOT NULL, name TEXT NOT NULL, relative_path TEXT NOT NULL,
+           mime_type TEXT, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
+           created_at TEXT NOT NULL, UNIQUE(experiment_id,relative_path));
+        CREATE TABLE IF NOT EXISTS experiment_sources (
+           experiment_id TEXT NOT NULL, source_id TEXT NOT NULL, title TEXT NOT NULL,
+           url TEXT NOT NULL, kind TEXT NOT NULL, metadata TEXT NOT NULL,
+           created_at TEXT NOT NULL, PRIMARY KEY(experiment_id,source_id));
+        CREATE TABLE IF NOT EXISTS experiment_checkpoints (
+           experiment_id TEXT NOT NULL, node TEXT NOT NULL, state TEXT NOT NULL,
+           created_at TEXT NOT NULL, PRIMARY KEY(experiment_id,node));
         ''')
         columns={r['name'] for r in c.execute('PRAGMA table_info(jobs)')}
         if 'room_id' not in columns:
@@ -74,6 +110,11 @@ def init_db():
         research_store.initialize(c)
         from . import source_graph
         source_graph.initialize(c)
+        attempt_columns={r['name'] for r in c.execute('PRAGMA table_info(experiment_attempts)')}
+        for name,kind in (
+            ('runtime_seconds','REAL'),('container_name','TEXT'),('executor_image','TEXT'),
+            ('command','TEXT'),('metadata','TEXT')):
+            if name not in attempt_columns:c.execute(f'ALTER TABLE experiment_attempts ADD COLUMN {name} {kind}')
 
 def add_job(prompt, budget=90, origin=None, room_id=None):
     job_id = uuid.uuid4().hex[:10]
@@ -315,3 +356,294 @@ def latest_room_job(room_id: str, statuses: tuple[str,...] = ()):
     with connection() as c:
         row=c.execute(sql,params).fetchone()
     return dict(row) if row else None
+
+
+# Autonomous experiment queue ------------------------------------------------
+
+def _json_value(value):
+    if value is None or isinstance(value,(str,int,float)):return value
+    return json.dumps(value,ensure_ascii=False)
+
+def _decode_experiment(row):
+    if not row:return None
+    out=dict(row)
+    for key in ('plan','result','report'):
+        if out.get(key):
+            try:out[key]=json.loads(out[key])
+            except json.JSONDecodeError:pass
+    out['cancel_requested']=bool(out.get('cancel_requested'))
+    return out
+
+def create_experiment_job(room_id,requested_by,request,intent='direct_execution',
+                          parent_experiment_id=None,max_retries=2,runtime_limit=300,
+                          memory_mb=2048,cpu_cores=2.0):
+    experiment_id='exp_'+uuid.uuid4().hex[:12]
+    now=utcnow()
+    with _lock,connection() as c:
+        c.execute('''INSERT INTO experiment_jobs
+          (id,room_id,requested_by,request,intent,status,stage,progress,plan,result,report,
+           parent_experiment_id,cancel_requested,retry_count,max_retries,runtime_limit,
+           memory_mb,cpu_cores,worker_id,heartbeat_at,created_at,updated_at,started_at,completed_at,error)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+          (experiment_id,room_id,requested_by,request,intent,'queued','queued',0,None,None,None,
+           parent_experiment_id,0,0,max_retries,runtime_limit,memory_mb,cpu_cores,None,None,
+           now,now,None,None,None))
+    add_experiment_event(experiment_id,room_id,'experiment.queued',{
+        'experiment_id':experiment_id,'status':'queued','stage':'queued','progress':0,
+        'message':'Experiment added to the single-worker queue.'})
+    return get_experiment_job(experiment_id)
+
+EXPERIMENT_UPDATE_FIELDS={'status','stage','progress','plan','result','report','cancel_requested',
+    'retry_count','worker_id','heartbeat_at','started_at','completed_at','error','intent'}
+
+def update_experiment_job(experiment_id,**changes):
+    changes={key:_json_value(value) for key,value in changes.items() if key in EXPERIMENT_UPDATE_FIELDS}
+    if not changes:return False
+    changes['updated_at']=utcnow()
+    sql='UPDATE experiment_jobs SET '+','.join(f'{key}=?' for key in changes)+' WHERE id=?'
+    with _lock,connection() as c:
+        cur=c.execute(sql,(*changes.values(),experiment_id))
+    return cur.rowcount>0
+
+def get_experiment_job(experiment_id):
+    with connection() as c:
+        row=c.execute('''SELECT j.*,p.display_name requested_by_name,p.color requested_by_color
+          FROM experiment_jobs j LEFT JOIN participants p ON p.id=j.requested_by
+          WHERE j.id=?''',(experiment_id,)).fetchone()
+    return _decode_experiment(row)
+
+def list_room_experiments(room_id,limit=30):
+    with connection() as c:
+        rows=c.execute('''SELECT j.*,p.display_name requested_by_name,p.color requested_by_color
+          FROM experiment_jobs j LEFT JOIN participants p ON p.id=j.requested_by
+          WHERE j.room_id=? ORDER BY j.created_at DESC LIMIT ?''',(room_id,min(limit,100))).fetchall()
+    return [_decode_experiment(row) for row in rows]
+
+def claim_next_experiment(worker_id):
+    with _lock,connection() as c:
+        c.execute('BEGIN IMMEDIATE')
+        row=c.execute("SELECT id FROM experiment_jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+        if not row:
+            c.commit();return None
+        now=utcnow()
+        changed=c.execute("""UPDATE experiment_jobs SET status='researching',stage='researching',
+            progress=5,worker_id=?,heartbeat_at=?,started_at=COALESCE(started_at,?),updated_at=?
+            WHERE id=? AND status='queued'""",(worker_id,now,now,now,row['id'])).rowcount
+        c.commit()
+    return get_experiment_job(row['id']) if changed else None
+
+def request_experiment_cancel(experiment_id):
+    job=get_experiment_job(experiment_id)
+    if not job or job['status'] in ('completed','failed','cancelled'):return job,False
+    if job['status']=='queued':
+        update_experiment_job(experiment_id,cancel_requested=1,status='cancelled',stage='cancelled',
+                              completed_at=utcnow(),progress=job.get('progress',0))
+        add_experiment_event(experiment_id,job['room_id'],'experiment.cancelled',{
+            'experiment_id':experiment_id,'status':'cancelled','stage':'cancelled',
+            'progress':job.get('progress',0),'message':'Queued experiment cancelled.'})
+    else:update_experiment_job(experiment_id,cancel_requested=1)
+    return get_experiment_job(experiment_id),True
+
+def experiment_cancel_requested(experiment_id):
+    with connection() as c:
+        row=c.execute('SELECT cancel_requested FROM experiment_jobs WHERE id=?',(experiment_id,)).fetchone()
+    return bool(row and row['cancel_requested'])
+
+def add_experiment_attempt(experiment_id,attempt_no,status='running',code_hash=''):
+    attempt_id=f'{experiment_id}-attempt-{attempt_no}'
+    with _lock,connection() as c:
+        c.execute('''INSERT OR REPLACE INTO experiment_attempts
+          (id,experiment_id,attempt_no,status,exit_code,code_hash,logs,error,started_at,completed_at,
+           runtime_seconds,container_name,executor_image,command,metadata)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',(attempt_id,experiment_id,attempt_no,status,None,
+          code_hash,'[]',None,utcnow(),None,None,None,None,'[]','{}'))
+    return attempt_id
+
+def finish_experiment_attempt(attempt_id,status,exit_code=None,logs=None,error=None,
+                              runtime_seconds=None,container_name=None,executor_image=None,
+                              command=None,metadata=None,started_at=None,completed_at=None):
+    with _lock,connection() as c:
+        c.execute('''UPDATE experiment_attempts SET status=?,exit_code=?,logs=?,error=?,
+          started_at=COALESCE(?,started_at),completed_at=?,runtime_seconds=?,container_name=?,
+          executor_image=?,command=?,metadata=? WHERE id=?''',
+          (status,exit_code,json.dumps(logs or [],ensure_ascii=False),error,started_at,
+           completed_at or utcnow(),runtime_seconds,container_name,executor_image,
+           json.dumps(command or [],ensure_ascii=False),json.dumps(metadata or {},ensure_ascii=False),attempt_id))
+
+def get_experiment_attempts(experiment_id):
+    with connection() as c:
+        rows=c.execute('SELECT * FROM experiment_attempts WHERE experiment_id=? ORDER BY attempt_no',(experiment_id,)).fetchall()
+    out=[]
+    for row in rows:
+        item=dict(row)
+        try:item['logs']=json.loads(item['logs'] or '[]')
+        except json.JSONDecodeError:item['logs']=[]
+        try:item['command']=json.loads(item.get('command') or '[]')
+        except json.JSONDecodeError:item['command']=[]
+        try:item['metadata']=json.loads(item.get('metadata') or '{}')
+        except json.JSONDecodeError:item['metadata']={}
+        out.append(item)
+    return out
+
+def add_experiment_event(experiment_id,room_id,event_type,payload):
+    event_id=uuid.uuid4().hex
+    now=utcnow()
+    with _lock,connection() as c:
+        cur=c.execute('''INSERT INTO experiment_events(event_id,experiment_id,room_id,event_type,payload,created_at)
+          VALUES(?,?,?,?,?,?)''',(event_id,experiment_id,room_id,event_type,
+          json.dumps(payload,ensure_ascii=False),now))
+        seq=cur.lastrowid
+    return {'seq':seq,'event_id':event_id,'experiment_id':experiment_id,'room_id':room_id,
+            'event_type':event_type,'payload':payload,'created_at':now}
+
+def get_experiment_events(experiment_id=None,after=0,limit=500):
+    sql='SELECT * FROM experiment_events WHERE seq>?'
+    params=[after]
+    if experiment_id:sql+=' AND experiment_id=?';params.append(experiment_id)
+    sql+=' ORDER BY seq LIMIT ?';params.append(min(limit,1000))
+    with connection() as c:rows=c.execute(sql,params).fetchall()
+    return [{'seq':row['seq'],'event_id':row['event_id'],'experiment_id':row['experiment_id'],
+             'room_id':row['room_id'],'event_type':row['event_type'],
+             'payload':json.loads(row['payload']),'created_at':row['created_at']} for row in rows]
+
+def latest_experiment_sequence():
+    with connection() as c:
+        row=c.execute('SELECT MAX(seq) n FROM experiment_events').fetchone()
+    return int(row['n'] or 0)
+
+def add_experiment_artifact(experiment_id,attempt_no,kind,name,relative_path,mime_type,size_bytes,sha256):
+    artifact_id='art_'+uuid.uuid4().hex[:14]
+    with _lock,connection() as c:
+        c.execute('''INSERT OR REPLACE INTO experiment_artifacts
+          (id,experiment_id,attempt_no,kind,name,relative_path,mime_type,size_bytes,sha256,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?)''',(artifact_id,experiment_id,attempt_no,kind,name,
+          relative_path,mime_type,size_bytes,sha256,utcnow()))
+    return artifact_id
+
+def get_experiment_artifacts(experiment_id):
+    with connection() as c:
+        return [dict(row) for row in c.execute(
+            'SELECT * FROM experiment_artifacts WHERE experiment_id=? ORDER BY created_at',(experiment_id,))]
+
+def get_experiment_artifact(artifact_id):
+    with connection() as c:
+        row=c.execute('SELECT * FROM experiment_artifacts WHERE id=?',(artifact_id,)).fetchone()
+    return dict(row) if row else None
+
+def add_experiment_source(experiment_id,source):
+    source_id=str(source.get('id') or hashlib.sha256(source.get('url','').encode()).hexdigest()[:16])
+    with _lock,connection() as c:
+        c.execute('''INSERT OR REPLACE INTO experiment_sources
+          (experiment_id,source_id,title,url,kind,metadata,created_at) VALUES(?,?,?,?,?,?,?)''',
+          (experiment_id,source_id,source.get('title','Untitled')[:500],source.get('url','')[:1500],
+           source.get('origin','research'),json.dumps(source,ensure_ascii=False),utcnow()))
+
+def get_experiment_sources(experiment_id):
+    with connection() as c:rows=c.execute(
+        'SELECT * FROM experiment_sources WHERE experiment_id=? ORDER BY created_at',(experiment_id,)).fetchall()
+    out=[]
+    for row in rows:
+        item=dict(row)
+        try:item['metadata']=json.loads(item['metadata'])
+        except json.JSONDecodeError:pass
+        out.append(item)
+    return out
+
+def save_experiment_checkpoint(experiment_id,node,state):
+    safe={key:value for key,value in state.items() if key not in ('execution_logs',)}
+    with _lock,connection() as c:
+        c.execute('INSERT OR REPLACE INTO experiment_checkpoints VALUES(?,?,?,?)',
+                  (experiment_id,node,json.dumps(safe,ensure_ascii=False,default=str),utcnow()))
+
+def get_experiment_detail(experiment_id):
+    job=get_experiment_job(experiment_id)
+    if not job:return None
+    job['attempts']=get_experiment_attempts(experiment_id)
+    job['events']=get_experiment_events(experiment_id)
+    job['artifacts']=get_experiment_artifacts(experiment_id)
+    job['sources']=get_experiment_sources(experiment_id)
+    job['execution_evidence']=build_execution_evidence(job)
+    return job
+
+
+def _read_json_artifact(experiment_id,artifacts,name):
+    item=next((artifact for artifact in artifacts if artifact['name']==name),None)
+    if not item:return None
+    root=(settings.data_dir/'experiments'/experiment_id).resolve()
+    path=(root/item['relative_path']).resolve()
+    if root not in path.parents or not path.is_file():return None
+    try:return json.loads(path.read_text(encoding='utf-8'))
+    except (OSError,json.JSONDecodeError):return None
+
+
+def build_execution_evidence(job):
+    """Reconstruct authorization-safe, hash-verified execution evidence from persisted records."""
+    experiment_id=job['id']
+    artifacts=job.get('artifacts') or get_experiment_artifacts(experiment_id)
+    attempts=job.get('attempts') or get_experiment_attempts(experiment_id)
+    root=(settings.data_dir/'experiments'/experiment_id).resolve()
+    checked=[]
+    for artifact in artifacts:
+        path=(root/artifact['relative_path']).resolve()
+        exists=root in path.parents and path.is_file()
+        digest=hashlib.sha256(path.read_bytes()).hexdigest() if exists else None
+        checked.append({**artifact,'absolute_path':str(path),'exists':exists,
+                        'hash_verified':bool(exists and digest==artifact['sha256']),
+                        'download_url':f"/api/experiments/{experiment_id}/artifacts/{artifact['id']}"})
+    attempt=attempts[-1] if attempts else None
+    metrics=_read_json_artifact(experiment_id,artifacts,'metrics.json')
+    run_metadata=_read_json_artifact(experiment_id,artifacts,'run_metadata.json') or {}
+    contract=(job.get('result') or {}).get('verification') or {}
+    hashes_verified=bool(checked) and all(item['hash_verified'] for item in checked)
+    execution_verified=bool(
+        job.get('status')=='completed' and attempt and attempt.get('exit_code')==0 and
+        hashes_verified and contract.get('status')=='verified')
+    if execution_verified:verification_status='verified'
+    elif job.get('status')=='completed':verification_status='legacy_or_procedure_unverified'
+    elif job.get('status')=='failed':verification_status='failed'
+    else:verification_status='not_completed'
+    script=next((item for item in reversed(checked) if item['kind']=='source' and
+                 item['relative_path'].endswith('/experiment.py')),None)
+    if not script:
+        script=next((item for item in reversed(checked) if item['kind']=='code_version' and
+                     item['relative_path'].endswith('/experiment.py')),None)
+    return {
+        'verification_status':verification_status,'execution_verified':execution_verified,
+        'contract_checks':contract.get('checks',[]),'hashes_verified':hashes_verified,
+        'experiment_id':experiment_id,'worker_id':job.get('worker_id'),
+        'script_path':script.get('absolute_path') if script else None,
+        'script_sha256':script.get('sha256') if script else None,
+        'started_at':attempt.get('started_at') if attempt else job.get('started_at'),
+        'completed_at':attempt.get('completed_at') if attempt else job.get('completed_at'),
+        'runtime_seconds':attempt.get('runtime_seconds') if attempt else None,
+        'exit_code':attempt.get('exit_code') if attempt else None,
+        'container_name':attempt.get('container_name') if attempt else None,
+        'executor_image':attempt.get('executor_image') if attempt else None,
+        'command':attempt.get('command',[]) if attempt else [],
+        'code_hash':attempt.get('code_hash') if attempt else None,
+        'logs':attempt.get('logs',[]) if attempt else [],
+        'requested_seed_count':len((job.get('plan') or {}).get('random_seeds') or []),
+        'actual_seed_count':run_metadata.get('seed_count'),
+        'expected_training_runs':(job.get('plan') or {}).get('expected_training_runs'),
+        'actual_training_runs':run_metadata.get('training_runs'),
+        'expected_simulations':(job.get('plan') or {}).get('expected_simulations'),
+        'actual_simulations':run_metadata.get('total_simulations'),
+        'run_metadata':run_metadata,'raw_metrics':metrics,
+        'artifact_filenames':[item['name'] for item in checked],
+        'plot_filenames':[item['name'] for item in checked if (item.get('mime_type') or '').startswith('image/')],
+        'artifacts':checked,
+    }
+
+def recover_interrupted_experiments():
+    active=('researching','planning','generating','validating','running','debugging','evaluating','reporting')
+    now=utcnow()
+    with _lock,connection() as c:
+        rows=c.execute(f"SELECT id,room_id,status FROM experiment_jobs WHERE status IN ({','.join('?' for _ in active)})",active).fetchall()
+        for row in rows:
+            message=f"Worker restarted while experiment was {row['status']}; execution was not automatically repeated. Use rerun to create a new version."
+            c.execute("UPDATE experiment_jobs SET status='failed',stage='failed',error=?,completed_at=?,updated_at=? WHERE id=?",
+                      (message,now,now,row['id']))
+            c.execute('''INSERT INTO experiment_events(event_id,experiment_id,room_id,event_type,payload,created_at)
+              VALUES(?,?,?,?,?,?)''',(uuid.uuid4().hex,row['id'],row['room_id'],'experiment.failed',
+              json.dumps({'experiment_id':row['id'],'status':'failed','stage':'failed','message':message}),now))
+    return len(rows)

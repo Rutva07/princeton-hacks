@@ -64,6 +64,31 @@ async def search_papers(query, limit=8):
         return [], 'unavailable'
 
 
+async def search_web(query, limit=6):
+    """Optional current-web retrieval with explicit provenance and no synthetic fallback."""
+    if not settings.tavily_api_key:
+        return [], 'not_configured'
+    try:
+        async with httpx.AsyncClient(timeout=20,follow_redirects=True) as client:
+            response=await client.post('https://api.tavily.com/search',json={
+                'api_key':settings.tavily_api_key,'query':query,'search_depth':'advanced',
+                'max_results':min(limit,8),'include_answer':False,
+            })
+            response.raise_for_status()
+        results=[]
+        for item in response.json().get('results',[]):
+            url=item.get('url','')
+            if not url.startswith(('https://','http://')):continue
+            results.append({
+                'id':'web:'+str(abs(hash(url))), 'title':item.get('title') or 'Web source',
+                'url':url,'summary':item.get('content','')[:1200], 'origin':'tavily_web',
+                'evidence_level':'General web result; independently verify against primary sources',
+            })
+        return results,'tavily'
+    except (httpx.HTTPError,ValueError,KeyError):
+        return [],'unavailable'
+
+
 def plan_pipelines(prompt, papers):
     """Clearly scoped executable templates, not paper-faithful reproductions."""
     if re.search(r'traffic|congestion|road|braess',prompt,re.I):

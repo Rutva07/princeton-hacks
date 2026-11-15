@@ -8,8 +8,8 @@ import {useResearchPage} from './useResearchPage.js';
 import {request} from './api.js';
 import {
   Activity, ArrowRight, Atom, Beaker, BookOpen, Check, Circle, CircleAlert,
-  FlaskConical, Hash, History, Link2, LoaderCircle, Menu, PanelRightClose,
-  Play, Plus, Radio, Send, Share2, Sparkles, Users, X, Zap
+  Download, FlaskConical, Hash, History, Link2, LoaderCircle, Menu, PanelRightClose,
+  Play, Plus, Radio, RotateCcw, Send, Share2, Sparkles, Square, Users, X, Zap
 } from 'lucide-react';
 import './style.css';
 
@@ -509,6 +509,40 @@ function EmptyRooms({onCreate, onJoin}) {
 function ExperimentVisual({result}) {
   if (!result) return null;
 
+  if (result.experiment_type === 'clt_monte_carlo') {
+    return (
+      <div className="clt-grid">
+        {(result.summary || []).map(row => (
+          <div key={row.sample_size}>
+            <strong>n = {row.sample_size}</strong>
+            <span>Variance <b>{row.empirical_variance.toFixed(4)}</b> / {row.theoretical_variance.toFixed(4)}</span>
+            <span>Skewness <b>{row.empirical_skewness.toFixed(3)}</b> / {row.theoretical_skewness.toFixed(3)}</span>
+            <small>KS {row.ks_statistic.toFixed(4)} · {row.simulations.toLocaleString()} means</small>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (result.experiment_type === 'classification_comparison') {
+    return (
+      <div className="metric-grid">
+        {(result.methods || []).map(method => (
+          <div className="metric-method" key={method.method}>
+            <strong>{method.method}</strong>
+            <span><b>{(method.accuracy * 100).toFixed(1)}%</b> accuracy</span>
+            <span><b>{(method.weighted_f1 * 100).toFixed(1)}%</b> weighted F1</span>
+            <small>
+              {method.cv_accuracy_mean != null
+                ? `CV ${(method.cv_accuracy_mean * 100).toFixed(1)}% ± ${(method.cv_accuracy_std * 100).toFixed(1)}`
+                : `${method.seed_count || 1} split${method.seed_count === 1 ? '' : 's'} · F1 SD ${((method.weighted_f1_std || 0) * 100).toFixed(2)}`}
+            </small>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (result.experiment_type === 'traffic_simulation') {
     const a = result.results.baseline.average_travel_time;
     const b = result.results.candidate.average_travel_time;
@@ -576,11 +610,17 @@ function ExperimentVisual({result}) {
   );
 }
 
-function ExperimentCard({job, onRun, activity}) {
+function ExperimentCard({job, onRun, onCancel, onRerun, onDownload, activity}) {
   if (!job) return null;
 
   const result = job.results;
-  const running = job.status === 'running' || job.status === 'researching';
+  const running = [
+    'queued', 'researching', 'planning', 'generating', 'validating',
+    'running', 'debugging', 'evaluating', 'reporting'
+  ].includes(job.status);
+  const autonomous = Boolean(job.autonomous);
+  const progress = job.progress ?? activity?.progress ?? 0;
+  const evidence = job.execution_evidence;
 
   return (
     <article className={`experiment-card ${result ? 'complete' : ''}`}>
@@ -588,23 +628,30 @@ function ExperimentCard({job, onRun, activity}) {
         <span>
           <FlaskConical size={16}/>
           {' '}
-          {result ? 'EXPERIMENT RESULT' : 'PROPOSED EXPERIMENT'}
+          {result ? 'EXPERIMENT RESULT' : autonomous ? 'AUTONOMOUS EXPERIMENT' : 'PROPOSED EXPERIMENT'}
         </span>
         <small>{job.id}</small>
       </header>
 
-      <h3>{result?.experiment || job.prompt}</h3>
+      <h3>{job.plan?.title || result?.experiment || job.prompt}</h3>
+
+      {autonomous && evidence && (
+        <span className={`verification-pill ${evidence.execution_verified ? 'verified' : 'unverified'}`}>
+          {evidence.execution_verified ? <Check size={11}/> : <CircleAlert size={11}/>}
+          {evidence.execution_verified ? 'Verified execution' : evidence.verification_status.replaceAll('_', ' ')}
+        </span>
+      )}
 
       {running && (
         <div className="progress-wrap">
           <div className="progress-copy">
             <span>
-              {activity?.message || 'Running trusted backend tools…'}
+              {job.stage?.replaceAll('_', ' ') || activity?.message || 'Queued'}
             </span>
-            <b>{activity?.progress || 38}%</b>
+            <b>{progress}%</b>
           </div>
           <i>
-            <span style={{width: `${activity?.progress || 38}%`}}/>
+            <span style={{width: `${progress}%`}}/>
           </i>
         </div>
       )}
@@ -621,6 +668,22 @@ function ExperimentCard({job, onRun, activity}) {
           <p className="limitations">
             Bounded model · {result.limitations?.slice(0, 2).join(' · ')}
           </p>
+
+          {job.artifacts?.length > 0 && (
+            <div className="artifact-list">
+              {job.artifacts.map(artifact => (
+                <button key={artifact.id} onClick={() => onDownload?.(job, artifact)}>
+                  <Download size={12}/> {artifact.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {autonomous && (
+            <button className="secondary-action" onClick={() => onRerun?.(job)}>
+              <RotateCcw size={13}/> Rerun with new seed
+            </button>
+          )}
         </>
       ) : job.status === 'awaiting_approval' ? (
         <>
@@ -635,20 +698,86 @@ function ExperimentCard({job, onRun, activity}) {
           </button>
         </>
       ) : (
-        <p className="agent-working">
-          <LoaderCircle className="spin" size={14}/>
-          The research agent is preparing this study.
-        </p>
+        <>
+          <p className={`agent-working ${job.status === 'failed' ? 'failed' : ''}`}>
+            {running ? <LoaderCircle className="spin" size={14}/> : <CircleAlert size={14}/>}
+            {job.error || 'The research agent is preparing this study.'}
+          </p>
+          {running && autonomous && (
+            <button className="secondary-action danger" onClick={() => onCancel?.(job)}>
+              <Square size={12}/> Cancel safely
+            </button>
+          )}
+          {job.status === 'failed' && autonomous && (
+            <button className="secondary-action" onClick={() => onRerun?.(job)}>
+              <RotateCcw size={13}/> Rerun as new version
+            </button>
+          )}
+        </>
+      )}
+
+      {job.comparison?.metric_deltas?.length > 0 && (
+        <div className="version-comparison">
+          <strong>VERSION COMPARISON · SEED {job.comparison.previous_seed} → {job.comparison.current_seed}</strong>
+          {job.comparison.metric_deltas.map(item => (
+            <span key={item.method}>
+              {item.method}: F1 {item.weighted_f1_delta >= 0 ? '+' : ''}
+              {(item.weighted_f1_delta * 100).toFixed(2)} points
+            </span>
+          ))}
+        </div>
+      )}
+
+      {autonomous && evidence && (
+        <section className="execution-evidence">
+          <header>
+            <strong>EXECUTION EVIDENCE</strong>
+            <span>{evidence.hashes_verified ? 'HASHES VERIFIED' : 'EVIDENCE INCOMPLETE'}</span>
+          </header>
+          <div>
+            <span><b>Exit code</b>{evidence.exit_code ?? '—'}</span>
+            <span><b>Runtime</b>{evidence.runtime_seconds != null ? `${evidence.runtime_seconds}s` : '—'}</span>
+            <span><b>Seeds</b>{evidence.actual_seed_count ?? '—'} / {evidence.requested_seed_count || '—'}</span>
+            <span><b>Training runs</b>{evidence.actual_training_runs ?? '—'} / {evidence.expected_training_runs ?? '—'}</span>
+            <span><b>Simulations</b>{evidence.actual_simulations?.toLocaleString?.() ?? '—'} / {evidence.expected_simulations?.toLocaleString?.() ?? '—'}</span>
+            <span><b>Artifacts</b>{evidence.artifact_filenames?.length || 0}</span>
+          </div>
+          <p><b>Started</b> {evidence.started_at || 'not recorded'}</p>
+          <p><b>Completed</b> {evidence.completed_at || 'not recorded'}</p>
+          <p className="script-path"><b>Code</b> {evidence.script_path || 'No executable script reached the worker.'}</p>
+          {evidence.contract_checks?.some(item => !item.passed) && (
+            <ul>
+              {evidence.contract_checks.filter(item => !item.passed).map(item => (
+                <li key={item.name}>{item.name}: expected {String(item.expected)}, got {String(item.actual)}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      {autonomous && (job.events?.length > 0 || job.attempts?.length > 0) && (
+        <details className="experiment-log">
+          <summary>Execution log and provenance</summary>
+          {job.events?.slice(-8).map(event => (
+            <p key={event.event_id}>
+              <b>{event.payload?.stage || event.event_type}</b>
+              {event.payload?.message}
+            </p>
+          ))}
+          {job.attempts?.flatMap(attempt => (attempt.logs || []).slice(-12).map((line, index) => (
+            <code key={`${attempt.id}-${index}`}>{line}</code>
+          )))}
+        </details>
       )}
     </article>
   );
 }
 
-function Message({message, currentUser, job, onRun, activity}) {
+function Message({message, currentUser, job, onRun, onCancel, onRerun, onDownload, activity}) {
   const own = message.sender_id === currentUser.id;
   const agent = message.sender_type === 'agent';
 
-  if (agent && ['experiment_proposal', 'experiment_result'].includes(message.kind)) {
+  if (agent && ['experiment_proposal', 'experiment_result', 'experiment_job'].includes(message.kind)) {
     return (
       <div className="message-row agent-card-row">
         <Avatar ai/>
@@ -667,6 +796,9 @@ function Message({message, currentUser, job, onRun, activity}) {
             <ExperimentCard
               job={job}
               onRun={onRun}
+              onCancel={onCancel}
+              onRerun={onRerun}
+              onDownload={onDownload}
               activity={activity}
             />
           )}
@@ -713,7 +845,8 @@ function Message({message, currentUser, job, onRun, activity}) {
 
 function CenterChat({
   snapshot, messages, session, connected, presence, typing,
-  sendMessage, activity, onMenu, onRight, onInvite
+  sendMessage, activity, onMenu, onRight, onInvite,
+  onCancel, onRerun, onDownload
 }) {
   const [draft, setDraft] = useState('');
 
@@ -869,6 +1002,9 @@ function CenterChat({
                 : null
             }
             onRun={() => sendMessage('@chatbot run the experiment.')}
+            onCancel={onCancel}
+            onRerun={onRerun}
+            onDownload={onDownload}
             activity={activity}
           />
         ))}
@@ -925,7 +1061,7 @@ function CenterChat({
   );
 }
 
-function RightSidebar({snapshot, session, open, onClose, sendMessage, activity}) {
+function RightSidebar({snapshot, session, open, onClose, sendMessage, activity, onCancel, onRerun}) {
   const [tab, setTab] = useState('context');
   const [graphVisited, setGraphVisited] = useState(false);
   const scope = {roomId: snapshot.id, token: session.token, revision: snapshot.research_revision};
@@ -1029,23 +1165,50 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
                   </button>
                 )}
 
-                {active.status === 'running' && (
+                {[
+                  'queued', 'researching', 'planning', 'generating', 'validating',
+                  'running', 'debugging', 'evaluating', 'reporting'
+                ].includes(active.status) && (
                   <div className="mini-progress">
                     <i>
-                      <span style={{width: `${activity?.progress || 38}%`}}/>
+                      <span style={{width: `${active.progress ?? activity?.progress ?? 0}%`}}/>
                     </i>
 
                     <small>
-                      {activity?.message || 'Simulation running'}
+                      {active.stage?.replaceAll('_', ' ') || activity?.message || 'Experiment running'}
                     </small>
+                    {active.autonomous && (
+                      <button onClick={() => onCancel(active)}>
+                        <Square size={11}/> Cancel
+                      </button>
+                    )}
                   </div>
                 )}
 
                 {active.results && (
-                  <p>
-                    <Check size={13}/>
-                    {active.results.verdict}
-                  </p>
+                  <>
+                    <p>
+                      <Check size={13}/>
+                      {active.results.verdict}
+                    </p>
+                    {active.autonomous && (
+                      <button onClick={() => onRerun(active)}>
+                        <RotateCcw size={11}/> Rerun
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {active.execution_evidence && (
+                  <div className={`mini-evidence ${active.execution_evidence.execution_verified ? 'verified' : ''}`}>
+                    <strong>
+                      {active.execution_evidence.execution_verified ? '✓ Verified worker execution' : '⚠ Execution not fully verified'}
+                    </strong>
+                    <small>
+                      Exit {active.execution_evidence.exit_code ?? '—'} · {active.execution_evidence.runtime_seconds ?? '—'}s · {' '}
+                      {active.execution_evidence.actual_training_runs ?? active.execution_evidence.actual_simulations ?? '—'} runs
+                    </small>
+                  </div>
                 )}
               </div>
             ) : (
@@ -1350,9 +1513,21 @@ function App() {
           kind: 'experiment',
           ...event.payload
         });
+      } else if (event.type === 'experiment.stage_changed') {
+        setActivity({kind: 'experiment', ...event.payload});
+        request(`/rooms/${roomId}`, {token: session.token})
+          .then(setSnapshot)
+          .catch(() => {});
       } else if ([
         'experiment.proposed',
         'experiment.started',
+        'experiment.queued',
+        'experiment.research_completed',
+        'experiment.artifact_created',
+        'experiment.validation_failed',
+        'experiment.repair_generated',
+        'experiment.verification_completed',
+        'experiment.cancelled',
         'experiment.completed',
         'experiment.failed',
         'agent.completed',
@@ -1362,6 +1537,7 @@ function App() {
       ].includes(event.type)) {
         if ([
           'agent.completed',
+          'experiment.cancelled',
           'experiment.completed',
           'experiment.failed'
         ].includes(event.type)) {
@@ -1471,6 +1647,42 @@ function App() {
     } catch (err) { setError(err.message); }
   }
 
+  async function refreshRoom() {
+    if (!roomId || !session) return;
+    const data = await request(`/rooms/${roomId}`, {token: session.token});
+    setSnapshot(data);
+  }
+
+  async function experimentAction(job, action) {
+    try {
+      await request(`/experiments/${job.id}/${action}`, {
+        token: session.token,
+        method: 'POST'
+      });
+      await refreshRoom();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function downloadArtifact(job, artifact) {
+    try {
+      const response = await fetch(
+        `${API}/experiments/${job.id}/artifacts/${artifact.id}`,
+        {headers: {Authorization: `Bearer ${session.token}`}}
+      );
+      if (!response.ok) throw new Error('Artifact download failed');
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = artifact.name;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function submitDialog(data) {
     setBusy(true);
     setError('');
@@ -1540,6 +1752,9 @@ function App() {
           onMenu={() => setLeftOpen(true)}
           onRight={() => setRightOpen(true)}
           onInvite={() => setInviteOpen(true)}
+          onCancel={job => experimentAction(job, 'cancel')}
+          onRerun={job => experimentAction(job, 'rerun')}
+          onDownload={downloadArtifact}
         />
       ) : (
         <div className="loading-room">
@@ -1557,6 +1772,8 @@ function App() {
           onClose={() => setRightOpen(false)}
           sendMessage={sendMessage}
           activity={activity}
+          onCancel={job => experimentAction(job, 'cancel')}
+          onRerun={job => experimentAction(job, 'rerun')}
         />
       )}
 
@@ -1619,4 +1836,3 @@ class AppErrorBoundary extends React.Component {
 createRoot(document.getElementById('root')).render(
   <AppErrorBoundary><App/></AppErrorBoundary>
 );
-

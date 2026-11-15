@@ -11,6 +11,7 @@ from fastapi import WebSocket
 from pydantic import BaseModel, Field, ValidationError
 
 from . import storage
+from .config import settings
 from .workflow import approve, research
 
 EventType = Literal[
@@ -18,6 +19,9 @@ EventType = Literal[
     'typing.stopped','presence.updated','agent.started','agent.thinking',
     'agent.tool_started','agent.tool_completed','agent.completed',
     'experiment.proposed','experiment.started','experiment.progress',
+    'experiment.queued','experiment.stage_changed','experiment.research_completed',
+    'experiment.artifact_created','experiment.validation_failed','experiment.repair_generated',
+    'experiment.verification_completed','experiment.cancelled',
     'experiment.completed','experiment.failed','error'
 ]
 
@@ -94,17 +98,54 @@ async def publish_message(room_id: str, content: str, kind='text', job_id=None):
     return message
 
 
+def _compare_experiment_results(current, previous):
+    if not current or not previous:return None
+    if current.get('experiment_type')!='classification_comparison':return None
+    old={row.get('method'):row for row in previous.get('methods',[])}
+    deltas=[]
+    for row in current.get('methods',[]):
+        prior=old.get(row.get('method'))
+        if not prior:continue
+        deltas.append({
+            'method':row['method'],
+            'accuracy_delta':round(float(row.get('accuracy',0))-float(prior.get('accuracy',0)),6),
+            'weighted_f1_delta':round(float(row.get('weighted_f1',0))-float(prior.get('weighted_f1',0)),6),
+        })
+    return {'previous_seed':previous.get('random_seed'),'current_seed':current.get('random_seed'),
+            'metric_deltas':deltas}
+
+
 def room_snapshot(room_id: str, participant_id: str):
     room=storage.get_room(room_id,participant_id)
     if not room:return None
     from . import research_store
     from .config import settings
     room['agent_mode']=settings.research_mode
+    autonomous_experiments=[]
+    for job in storage.list_room_experiments(room_id):
+        detail=storage.get_experiment_detail(job['id'])
+        parent=storage.get_experiment_job(job['parent_experiment_id']) if job.get('parent_experiment_id') else None
+        experiment={
+            **job,
+            'prompt':job['request'],
+            'results':job.get('result'),
+            'autonomous':True,
+            'artifacts':detail.get('artifacts',[]),
+            'attempts':detail.get('attempts',[]),
+            'events':detail.get('events',[])[-30:],
+            'execution_evidence':detail.get('execution_evidence'),
+            'parent':({'id':parent['id'],'request':parent['request'],'status':parent['status']}
+                      if parent else None),
+            'comparison':_compare_experiment_results(job.get('result'),parent.get('result') if parent else None),
+        }
+        autonomous_experiments.append(experiment)
     room['messages']=storage.get_room_messages(room_id)
+    room['autonomous_experiments']=autonomous_experiments
     room['message_jobs']=research_store.message_jobs(room_id,room['messages'])
     room['research_counts'],room['research_revision']=research_store.summary(room_id)
     recent=research_store.page(room_id,'experiments',limit=1)['items']
-    room['active_experiment']=recent[0] if recent else None
+    candidates=autonomous_experiments+recent
+    room['active_experiment']=max(candidates,key=lambda item:item.get('created_at','')) if candidates else None
     room['latest_sequence']=storage.latest_room_sequence(room_id)
     return room
 
@@ -167,7 +208,10 @@ def maybe_start_agent(room_id: str, participant: dict, content: str):
             kind='notice'))
         return
     text=clean.lower()
-    run_command=bool(re.search(r'\b(run|start|approve|execute)\b.{0,24}\b(experiment|simulation|test)\b|^run it\.?$',text))
+    run_command=bool(re.search(
+        r'\b(run|start|approve|execute|conduct|perform)\b.{0,60}\b(experiment|simulation|study|test)\b'
+        r'|\b(reproduce|replicate)\b.{0,80}\b(paper|study|experiment|result)\b'
+        r'|\b(rerun|repeat)\b|^run it\.?$',text))
     experiment_requested=(run_command or bool(re.search(
         r'\b(suggest|propose|design|plan|create|recommend|outline)\b.{0,50}\b(experiment|simulation|study|test)\b|\bhow (?:can|could|would) (?:we|i) test\b',text)))
     task=_room_agent_tasks.get(room_id)
@@ -204,20 +248,52 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
     async with _room_locks[room_id]:
         if not storage.is_room_member(room_id,participant['id']):return
         if run_command:
-            job=storage.latest_room_job(room_id,('awaiting_approval',))
-            if not job:
-                await publish_message(room_id,'There isn’t an approved-ready experiment in this room yet. Ask me a research question first, and I’ll propose one.',kind='notice')
+            repeat=bool(re.search(r'\b(rerun|repeat|again|new seed|different seed)\b',content,re.I))
+            generic=bool(re.fullmatch(
+                r'(?:run|start|execute|approve)(?: (?:the|this|that))? (?:experiment|simulation|test)[.!]?|run it[.!]?',
+                content.strip(),re.I))
+            legacy=storage.latest_room_job(room_id,('awaiting_approval',)) if generic else None
+            if legacy:
+                ok,state=await approve(legacy['id'],True)
+                if not ok:
+                    await publish_message(room_id,'That experiment changed state before I could start it. Refresh the room context and try again.',kind='notice')
+                    return
+                await publish(room_id,'experiment.started',{'job_id':legacy['id'],'status':state,
+                    'title':legacy['prompt'],'authorized_by':participant['id']})
+                await publish(room_id,'agent.tool_started',{'job_id':legacy['id'],
+                    'tool':'execute_simulation','message':'Starting the approved trusted simulation tool.'})
+                await publish_message(room_id,'Experiment approved. I’m running the bounded legacy simulation now and will publish the measured results here.',kind='experiment',job_id=legacy['id'])
+                await _finish_experiment(room_id,legacy['id'])
                 return
-            ok,state=await approve(job['id'],True)
-            if not ok:
-                await publish_message(room_id,'That experiment changed state before I could start it. Refresh the room context and try again.',kind='notice')
-                return
-            await publish(room_id,'experiment.started',{'job_id':job['id'],'status':state,
-                'title':job['prompt'],'authorized_by':participant['id']})
-            await publish(room_id,'agent.tool_started',{'job_id':job['id'],
-                'tool':'execute_simulation','message':'Starting the approved trusted simulation tool.'})
-            await publish_message(room_id,'Experiment approved. I’m running the real bounded simulation now and will publish the measured results here.',kind='experiment',job_id=job['id'])
-            await _finish_experiment(room_id,job['id'])
+
+            parent=None
+            request=content
+            if generic or repeat:
+                completed=next((item for item in storage.list_room_experiments(room_id)
+                                if item['status']=='completed'),None)
+                if not completed and generic:
+                    await publish_message(room_id,
+                        'Tell me what to run—for example, “@chatbot run an experiment comparing logistic regression and random forest.”',
+                        kind='notice')
+                    return
+                if completed:
+                    parent=completed['id']
+                    request=(f"{content}. Follow up on the previous experiment with the requested variation. "
+                             f"Original request: {completed['request']}")
+            job=storage.create_experiment_job(
+                room_id,participant['id'],request,parent_experiment_id=parent,
+                max_retries=settings.experiment_max_retries,
+                runtime_limit=settings.experiment_max_runtime,
+                memory_mb=settings.experiment_memory_mb,cpu_cores=settings.experiment_cpu_cores,
+            )
+            await publish(room_id,'experiment.queued',{
+                'experiment_id':job['id'],'job_id':job['id'],'status':'queued','stage':'queued',
+                'progress':0,'requested_by':participant['id'],
+                'message':'Autonomous experiment queued for research, planning, isolated execution, evaluation, and reporting.',
+            })
+            await publish_message(room_id,
+                f"Experiment {job['id']} is queued. I’ll research, plan, generate, validate, run, evaluate, and report it automatically. Everyone in this room will see the live stages.",
+                kind='experiment_job',job_id=job['id'])
             return
 
         active=storage.latest_room_job(room_id,('researching','running','answering'))
@@ -236,7 +312,7 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
                 from .deepagent import answer_with_langchain
                 context=[{'sender':m.get('sender_name'),'type':m.get('sender_type'),'content':m.get('content')}
                          for m in storage.get_room_messages(room_id,limit=40)]
-                answer=await answer_with_langchain(content,context)
+                answer=await answer_with_langchain(content,context,room_id=room_id)
                 papers=answer.get('papers',[])
                 web_results=answer.get('web_results',[])
                 storage.put_artifact(job_id,'papers.json',papers)
@@ -244,7 +320,7 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
                     {'title':p.get('title'),'url':p.get('url'),'reason':p.get('summary','')[:350],
                      'evidence_level':p.get('evidence_level','OpenAlex metadata/abstract')}
                     for p in papers]+[
-                    {'title':item.get('title'),'url':item.get('url'),'reason':item.get('content','')[:350],
+                    {'title':item.get('title'),'url':item.get('url'),'reason':(item.get('summary') or item.get('content',''))[:350],
                      'evidence_level':'General web result; independently verify'}
                     for item in web_results])
                 storage.put_artifact(job_id,'review.json',answer)
@@ -315,4 +391,3 @@ async def _finish_experiment(room_id: str, job_id: str):
             'tool':'execute_simulation','message':'Simulation tool exited with a recorded failure.'})
         await publish(room_id,'experiment.failed',{'job_id':job_id,'error':(job or {}).get('error','Experiment failed')})
         await publish_message(room_id,'The experiment failed safely. No partial result is being presented as evidence.',kind='notice',job_id=job_id)
-

@@ -2,13 +2,13 @@
 
 **0:00–0:20 — A room, not a solo dashboard.** Open the same CausalForge room in three browser profiles. Send a message from each and show instant synchronization, participant presence, and the shared context panel.
 
-**0:20–0:45 — Ask the LangChain bot.** Researcher A asks, “@chatbot find the key papers on whether adding a road can increase congestion.” Show clickable OpenAlex citations. Then ask, “@chatbot suggest an experiment for this question,” and show the proposal appearing for every participant.
+**0:20–0:45 — Ask the LangChain bot.** Researcher A asks, “@chatbot find the key papers on uncertainty estimation.” Show clickable OpenAlex citations and evidence labels.
 
-**0:45–1:05 — Collaborative approval.** Researcher B says, “@chatbot run the experiment,” or clicks the proposal button. Explain that ordinary messages do not wake the bot, membership is server-verified, and the room serializes agent runs.
+**0:45–1:05 — Direct autonomous request.** Researcher B says, “@chatbot run an experiment comparing logistic regression and random forest on the breast cancer dataset.” Show the durable queue entry immediately—no preapproved proposal is required.
 
-**1:05–1:35 — Real experiment.** Show live WebSocket progress and the completed traffic-network result. The actual assignment solver measures 65 minutes before the connector and 80 minutes after it. Point out the network visual, comparison bars, hypotheses, and source panel.
+**1:05–1:35 — Real isolated experiment.** Show the LangGraph stages, container log, result metrics, cross-validation uncertainty, plot, CSV, metadata, and report. Point out that Docker has no network or secrets and that the displayed numbers came from `metrics.json`.
 
-**1:35–2:00 — Persistence and scientific honesty.** Reload one browser to demonstrate missed-event recovery. Show that the result, sources, and discovery remain. Close with the stated limitations: a stylized four-node static network demonstrates a mechanism; it does not forecast a real city.
+**1:35–2:00 — Persistence and follow-up.** Reload one browser to demonstrate missed-event recovery. Ask, “@chatbot repeat the previous experiment with seed 123.” Show the linked version and F1 delta, then close with the visible limitations and source provenance.
 
 ## Sponsor framing
 

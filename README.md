@@ -1,6 +1,6 @@
-# CausalForge — Collaborative AI Scientist
+# ResearchForge / CausalForge — Autonomous Collaborative AI Scientist
 
-CausalForge is a WebSocket-first research workspace where multiple researchers and one shared LangChain research agent investigate questions together. Messages, sources, hypotheses, experiment proposals, progress, and measured results stay synchronized across browsers in a persistent room.
+ResearchForge is a WebSocket-first research workspace where any collaborator can mention `@chatbot` to ask a question, search the literature, request an experiment, or rerun a previous result. A typed LangGraph researches, plans, generates code, validates it, runs it in an isolated Docker container, evaluates measured outputs, and publishes a reproducible report. Messages, sources, stages, logs, artifacts, and results stay synchronized across browsers in a persistent room.
 
 The default local mode is fully functional without an LLM or messaging provider. Photon is an optional adapter and is disabled by default.
 
@@ -11,23 +11,31 @@ The default local mode is fully functional without an LLM or messaging provider.
 - Persistent messages and ordered room events in SQLite
 - Three or more logical participants per room (limited only by infrastructure)
 - Presence, typing, reconnect, missed-event replay, and client-message deduplication
-- One serialized AI/experiment run per room to protect shared state
+- A durable SQLite experiment queue with one OS-locked worker and atomic claims
 - Explicit `@chatbot` activation so ordinary human conversation stays human
 - LangChain paper-search answers with clickable OpenAlex citations and optional Tavily web search
-- Separate `@chatbot` intents for answering, suggesting an experiment, and running an experiment
+- Direct autonomous execution: `@chatbot run an experiment comparing logistic regression and random forest`
+- Typed LangGraph nodes for research, planning, generation, validation, execution, bounded repair, evaluation, and reporting
+- Interchangeable OpenAI, OpenRouter, NVIDIA, Groq, and Ollama model providers by agent role
+- Fail-closed Docker execution with no network, non-root UID, read-only root, dropped capabilities, CPU/RAM/PID/time/disk limits, and no secret mounts
+- Persistent attempts, checkpoints, event logs, source provenance, artifact hashes, lineage, reruns, cancellation, and seed-to-seed comparisons
+- A room-authorized experiment evidence API with exact script paths, timestamps, container command/image, exit code, logs, raw metrics, plots, and hash verification
+- A semantic completion gate that checks the requested seed/training/simulation counts and required artifacts before an experiment can be marked completed
 - Live literature, agent-tool, experiment-progress, and completion events
 - OpenAlex search plus restricted arXiv ingestion and clickable citations
-- A real Braess-paradox traffic assignment simulation for congestion questions
-- The existing real PyTorch flow-matching comparison for ML questions
+- A verified classification benchmark path that works without an LLM and produces JSON, CSV, PNG, metadata, and Markdown/JSON reports
+- Model-generated plans and code for other bounded local-CPU studies, with schema and static-policy validation before execution
+- The earlier Braess-paradox and PyTorch proposal/approval demos remain available for backward compatibility
 - Optional live LangChain Deep Agents orchestration with literature search, hypothesis, planning, simulation, statistical-analysis, and report tools
 - Responsive three-pane React interface for rooms, conversation, and research context
 
 ## Run locally
 
-Requirements: Python 3.12+ and Node.js 20+.
+Requirements: Python 3.12+, Node.js 20+, and Docker Desktop.
 
 ```bash
 bash scripts/setup.sh
+bash scripts/build-executor.sh
 bash scripts/dev.sh
 ```
 
@@ -35,28 +43,33 @@ Open [http://localhost:5173](http://localhost:5173). The API docs are at [http:/
 
 The first visit creates an opaque 30-day local bearer session. Create a room and click **Invite** to copy a URL containing the room ID and invite code. Opening the link prompts a new visitor to sign in, then joins the room automatically. Open separate browsers or private windows to demonstrate multi-user synchronization.
 
+`scripts/dev.sh` starts three processes: the FastAPI/WebSocket API, the single durable LangGraph worker, and Vite. Docker Desktop must be running before building the executor image or running an autonomous experiment. The system never falls back to host execution.
+
 ## Demo conversation
 
 1. Researcher A asks: `@chatbot find the key papers on whether adding a road can increase congestion.`
 2. The LangChain agent searches OpenAlex and answers with clickable papers.
-3. Researcher A asks: `@chatbot suggest an experiment for this question.`
-4. CausalForge publishes a controlled experiment proposal.
-5. Researcher B says: `@chatbot run the experiment.` or clicks **Run experiment**.
-6. The room receives live progress and a persisted result card. The traffic solver compares equilibrium travel time before and after adding a connector. In the included four-node model, average travel time rises from 65 to 80 minutes—a computed Braess-paradox result, with limitations clearly labeled.
+3. Researcher A asks: `@chatbot run an experiment comparing logistic regression and random forest on the breast cancer dataset.`
+4. ResearchForge immediately creates a durable job and shows `researching → planning → generating → validating → running → evaluating → reporting` to everyone.
+5. The isolated container writes measured metrics and artifacts. The room receives the result card, logs, sources, report, plot, CSV, hashes, and limitations.
+6. Researcher B asks: `@chatbot repeat the previous experiment with seed 123.` ResearchForge creates a linked version and shows metric deltas against the parent.
 
 ML questions continue to use the bounded PyTorch two-moons flow-matching experiment retained from the original project.
 
-## Live Deep Agents mode
+## Model configuration
 
-Default `RESEARCH_MODE=demo` uses deterministic orchestration and real backend tools without pretending an LLM ran. To enable actual LangChain Deep Agents:
+The verified classification path works without model credentials. Model-generated planning, coding, repair, and broad scientific answers require one configured provider. `auto` selects the first configured provider:
 
 ```dotenv
 RESEARCH_MODE=deepagents
 OPENAI_API_KEY=your_key
 OPENAI_MODEL=gpt-4o-mini
+PLANNING_MODEL_PROVIDER=openai
+CODING_MODEL_PROVIDER=openai
+DEBUG_MODEL_PROVIDER=openai
 ```
 
-OpenRouter is also supported through `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`. In live mode, the supervisor delegates literature review, experiment planning, and scientific critique. After approval, a Deep Agent must call the trusted simulation tool, statistical-analysis tool, and report tool in sequence. Arbitrary host code execution is never exposed.
+OpenRouter, NVIDIA NIM, Groq, and local Ollama are also supported. Each role can use a different provider/model. LangChain handles model/tool integration; LangGraph owns the durable scientific state machine. Generated code is never executed on the host.
 
 The room bot uses the same configured model whenever it is mentioned, even if the experiment workflow remains in demo mode. Academic search uses OpenAlex without a key. To add general-web results, configure `TAVILY_API_KEY`; web content is treated as untrusted evidence and linked for verification. With no model key, `@chatbot` uses a transparent LangChain grounded-search pipeline over real OpenAlex results rather than pretending an LLM ran.
 
@@ -115,6 +128,8 @@ Server events include:
 - `message.created`, `message.history`
 - `agent.started`, `agent.thinking`, `agent.tool_started`, `agent.tool_completed`, `agent.completed`
 - `experiment.proposed`, `experiment.started`, `experiment.progress`, `experiment.completed`, `experiment.failed`
+- `experiment.queued`, `experiment.stage_changed`, `experiment.research_completed`, `experiment.artifact_created`, `experiment.cancelled`
+- `experiment.validation_failed`, `experiment.repair_generated`, `experiment.verification_completed`
 
 Every persisted event carries an event ID, room ID, UTC timestamp, monotonic database sequence, and typed payload. The server derives room and participant identity from the authenticated socket; payload-supplied identity fields are ignored.
 
@@ -181,7 +196,7 @@ npm test
 npm run build
 ```
 
-The suite covers REST compatibility, room permissions, WebSocket sync, payload authorization, deduplication, replay, the real traffic solver, natural-language experiment planning, approval, and execution.
+The suite covers REST compatibility, room permissions, WebSocket sync, payload authorization, deduplication, replay, direct experiment queueing, atomic worker claims, generated-code policy checks, targeted repair, typed LangGraph completion, procedure-count verification, chatbot evidence retrieval, measured-output evaluation, and report artifacts.
 
 ## Project map
 
@@ -191,6 +206,10 @@ backend/app/realtime.py     rooms, presence, replay, messaging, agent event brid
 backend/app/storage.py      SQLite jobs, sessions, rooms, messages, ordered events
 backend/app/research_store.py indexed research history, backfill, cursor pagination
 backend/app/source_graph.py query/source graph and recorded citation relationships
+backend/app/experiment_graph.py typed autonomous LangGraph and bounded repair loop
+backend/app/executor.py     static validation + fail-closed Docker execution
+backend/app/worker.py       OS-locked single-consumer durable queue worker
+backend/app/experiment_templates.py verified no-model experiment bundles
 backend/app/deepagent.py    actual LangChain Deep Agents and trusted tools
 backend/app/workflow.py     literature → proposal → approval → execution
 backend/app/experiment.py   traffic assignment + PyTorch flow-matching simulations
@@ -200,4 +219,4 @@ frontend/src/style.css      responsive research-room design system
 
 ## Scientific limits
 
-CausalForge publishes bounded experimental evidence, not universal conclusions. The traffic study is a stylized static network, and the ML study uses one seed and a small synthetic dataset. Source evidence levels and model limitations remain visible in the room.
+ResearchForge publishes bounded experimental evidence, not universal conclusions. Retrieved metadata is not represented as full-paper reading. A reduced-scale reproduction is labeled as such. Results report the exact dataset, split, seed, runtime contract, measured metrics, artifacts, provenance, and limitations.
