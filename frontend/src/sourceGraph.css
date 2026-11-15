@@ -1,0 +1,87 @@
+.source-graph {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 12px 8px;
+  color: var(--ink);
+}
+.graph-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.graph-heading .kicker { font-size: 7px; letter-spacing: 1px; }
+.graph-heading h3 { font-size: 13px; margin: 5px 0 0; }
+.graph-heading-actions { display: flex; }
+.graph-icon-button { display: grid; place-items: center; flex-shrink: 0; width: 36px; height: 36px;
+  border: 1px solid transparent; border-radius: 7px; color: var(--green); background: transparent; }
+.graph-icon-button:hover { background: #e4ebe3; }
+.graph-summary { font-size: 9px; color: #61766a; line-height: 1.5; margin: 9px 0; }
+.graph-query-filter { display: grid; gap: 5px; color: #61766a; font-size: 9px; }
+.graph-query-filter select { width: 100%; min-width: 0; border: 1px solid #ccd8ce;
+  border-radius: 7px; padding: 8px; background: var(--paper); font: inherit; color: var(--ink); }
+.graph-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 8px; color: #52695b; margin: 11px 0; }
+.graph-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.graph-legend i { width: 9px; height: 9px; border-radius: 3px; }
+.query-key { background: #185c49; }
+.source-key { background: #fff; border: 1px solid #82a38c; }
+.graph-legend .retrieved-key { width: 17px; height: 0; border-top: 2px solid #609982; border-radius: 0; }
+.graph-legend .citation-key { width: 17px; height: 0; border-top: 2px dashed #c16b42; border-radius: 0; }
+.graph-coverage { font-size: 9px; line-height: 1.5; color: #8b5d39; margin: -2px 0 9px; }
+.source-graph-canvas { flex: 1 1 0; min-height: 200px; position: relative; overflow: hidden;
+  background: #eff3ec; border: 1px solid #d1ddcf; border-radius: 10px; isolation: isolate; touch-action: none; }
+.source-graph-canvas .react-flow { --xy-edge-stroke: #609982; --xy-controls-button-background-color: #fffef9;
+  --xy-controls-button-background-color-hover: #e5eee3; --xy-controls-button-color: #245d43;
+  --xy-controls-button-border-color: #d0dcce; --xy-minimap-background-color: #fbfaf5; }
+.source-graph-canvas .react-flow__controls { border-radius: 9px; overflow: hidden; box-shadow: 0 3px 12px #1c38271a; }
+.source-graph-canvas .react-flow__controls-button { width: 36px; height: 36px; padding: 9px; }
+.source-graph-canvas .react-flow__minimap { width: 140px; height: 90px; border: 1px solid #c9d8ca; border-radius: 7px; overflow: hidden; }
+.source-graph-canvas .react-flow__attribution { font-size: 8px; }
+.dependency-node { width: 196px; height: 104px; padding: 12px; border: 1px solid #9fb8a6;
+  border-radius: 11px; background: #fffef9; box-shadow: 0 3px 9px #203f2c12; color: #203f2e; }
+.dependency-node.query-node { background: #185c49; border-color: #185c49; color: #f6fff9; }
+.dependency-node.is-selected { outline: 3px solid #d88a52; outline-offset: 3px; }
+.dependency-node-kind { display: flex; align-items: center; gap: 5px; font: 500 8px 'DM Mono',monospace; letter-spacing: .8px; }
+.dependency-node strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; font-size: 12px; line-height: 1.4; margin-top: 7px; }
+.dependency-node small { display: block; font-size: 8px; margin-top: 5px; opacity: .8; }
+.dependency-node .react-flow__handle { width: 7px; height: 7px; min-width: 7px; min-height: 7px;
+  border: 1px solid #fffef9; background: #78a38a; }
+.graph-empty { position: absolute; inset: 0; padding: 24px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; color: #37634b; gap: 12px; }
+.graph-empty strong { font-size: 14px; }
+.graph-empty p { font-size: 11px; line-height: 1.6; max-width: 280px; margin: 0; color: #687d6c; }
+.graph-loading { position: absolute; top: 10px; left: 10px; display: flex; align-items: center; gap: 6px;
+  padding: 8px; border: 1px solid #cdd8cb; background: #fffef9; border-radius: 7px; font-size: 10px; }
+.graph-inspector { padding: 10px 1px; max-height: 150px; overflow: auto; }
+.graph-inspector strong { display: block; font-size: 11px; line-height: 1.5; margin-top: 5px; overflow-wrap: anywhere; }
+.graph-inspector p { font-size: 9px; line-height: 1.6; color: #61766a; margin: 4px 0; }
+.graph-inspector a { display: inline-flex; align-items: center; gap: 5px; color: #185c49; font-size: 10px;
+  text-underline-offset: 3px; padding: 4px 0; }
+.graph-history { padding-top: 8px; border-top: 1px solid #d8e0d5; }
+.graph-history p { font-size: 8px; color: #6b7b6e; line-height: 1.6; margin: 0 0 7px; }
+.graph-history button, .graph-error button { width: 100%; min-height: 36px; border: 1px solid #bfcebf;
+  border-radius: 7px; background: #e4eee1; color: #245b40; font-size: 10px; font-weight: 600; padding: 8px; }
+.graph-error { font-size: 10px; line-height: 1.5; color: #a34f42; margin-bottom: 9px; }
+.graph-error button { margin-top: 6px; }
+.source-graph button:focus-visible, .source-graph select:focus-visible,
+.source-graph a:focus-visible { outline: 2px solid #2f8967; outline-offset: 2px; }
+.source-graph-dialog { width: min(1200px,calc(100vw - 48px)); height: min(850px,calc(100dvh - 48px));
+  max-width: none; max-height: none; padding: 0; border: 1px solid #b8cbb9; border-radius: 16px;
+  background: var(--paper); color: var(--ink); box-shadow: 0 20px 100px #112d2555; }
+.source-graph-dialog[open] { display: flex; }
+.source-graph-dialog::backdrop { background: #152c24aa; backdrop-filter: blur(4px); }
+.source-graph.graph-expanded { padding: 20px; }
+.graph-expanded .graph-heading h3 { font-size: 20px; }
+.graph-expanded .graph-query-filter { max-width: 420px; }
+.graph-expanded .graph-summary, .graph-expanded .graph-legend { font-size: 11px; }
+.graph-expanded .graph-inspector { max-height: 160px; }
+.graph-expanded .graph-inspector strong { font-size: 13px; }
+.graph-expanded .graph-inspector p, .graph-expanded .graph-history p { font-size: 11px; }
+@media(max-width:820px) {
+  .graph-icon-button { width: 44px; height: 44px; }
+  .source-graph-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); border-radius: 12px; }
+  .source-graph.graph-expanded { padding: 12px; }
+  .graph-expanded .graph-heading h3 { font-size: 16px; }
+  .source-graph-canvas .react-flow__controls-button { width: 44px; height: 44px; }
+  .graph-inspector { max-height: 120px; }
+  .source-graph-canvas .react-flow__minimap { width: 95px; height: 65px; }
+}

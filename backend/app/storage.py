@@ -68,6 +68,8 @@ def init_db():
             c.execute('ALTER TABLE jobs ADD COLUMN room_id TEXT')
         from . import research_store
         research_store.initialize(c)
+        from . import source_graph
+        source_graph.initialize(c)
 
 def add_job(prompt, budget=90, origin=None, room_id=None):
     job_id = uuid.uuid4().hex[:10]
@@ -119,6 +121,9 @@ def put_artifact(job_id, name, data):
     content = json.dumps(data, ensure_ascii=False, indent=2) if not isinstance(data,str) else data
     with _lock, connection() as c:
         c.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?)', (job_id,name,content,utcnow()))
+        if name=='papers.json':
+            from . import source_graph
+            source_graph.index_papers(c,job_id,json.loads(content))
         from . import research_store
         if name in research_store.ARTIFACTS:
             job=c.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()

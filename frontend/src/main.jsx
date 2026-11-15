@@ -1,5 +1,5 @@
 
-import React, {useEffect, useRef, useState} from 'react';
+import React, {lazy, Suspense, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import MarkdownMessage from './MarkdownMessage.jsx';
 import ResearchPagination from './ResearchPagination.jsx';
@@ -11,6 +11,8 @@ import {
   Play, Plus, Radio, Send, Share2, Sparkles, Users, X, Zap
 } from 'lucide-react';
 import './style.css';
+
+const SourceGraph = lazy(() => import('./SourceGraph.jsx'));
 
 const sessionKey = 'causalforge.session';
 
@@ -900,6 +902,7 @@ function CenterChat({
 
 function RightSidebar({snapshot, session, open, onClose, sendMessage, activity}) {
   const [tab, setTab] = useState('context');
+  const [graphVisited, setGraphVisited] = useState(false);
   const scope = {roomId: snapshot.id, token: session.token, revision: snapshot.research_revision};
   const sourcesPage = useResearchPage({...scope, kind: 'sources', enabled: tab === 'sources'});
   const hypothesesPage = useResearchPage({...scope, kind: 'hypotheses', enabled: tab === 'context'});
@@ -909,6 +912,25 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
   const hypotheses = hypothesesPage.items;
   const discoveries = discoveriesPage.items;
   const counts = snapshot.research_counts || {};
+
+  function selectTab(value) {
+    if (value === 'graph') setGraphVisited(true);
+    setTab(value);
+  }
+
+  function handleTabKey(event, current) {
+    const tabs = ['context', 'sources', 'graph'];
+    let next;
+    if (event.key === 'ArrowRight') next = tabs[(tabs.indexOf(current) + 1) % tabs.length];
+    else if (event.key === 'ArrowLeft') next = tabs[(tabs.indexOf(current) + tabs.length - 1) % tabs.length];
+    else if (event.key === 'Home') next = tabs[0];
+    else if (event.key === 'End') next = tabs[tabs.length - 1];
+    if (next) {
+      event.preventDefault();
+      selectTab(next);
+      document.getElementById(`${next}-tab`)?.focus();
+    }
+  }
 
   return (
     <aside className={`right-sidebar ${open ? 'mobile-open' : ''}`}>
@@ -926,24 +948,35 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
         </button>
       </header>
 
-      <div className="right-tabs">
+      <div className="right-tabs" role="tablist" aria-label="Research views">
         <button
+          role="tab" id="context-tab" aria-controls="context-panel" aria-selected={tab === 'context'}
+          tabIndex={tab === 'context' ? 0 : -1} onKeyDown={event => handleTabKey(event, 'context')}
           className={tab === 'context' ? 'active' : ''}
-          onClick={() => setTab('context')}
+          onClick={() => selectTab('context')}
         >
           Context
         </button>
 
         <button
+          role="tab" id="sources-tab" aria-controls="sources-panel" aria-selected={tab === 'sources'}
+          tabIndex={tab === 'sources' ? 0 : -1} onKeyDown={event => handleTabKey(event, 'sources')}
           className={tab === 'sources' ? 'active' : ''}
-          onClick={() => setTab('sources')}
+          onClick={() => selectTab('sources')}
         >
           Sources <span>{counts.sources || 0}</span>
+        </button>
+
+        <button role="tab" id="graph-tab" aria-controls="graph-panel" aria-selected={tab === 'graph'}
+          tabIndex={tab === 'graph' ? 0 : -1} onKeyDown={event => handleTabKey(event, 'graph')}
+          className={tab === 'graph' ? 'active' : ''}
+          onClick={() => selectTab('graph')}>
+          Graph
         </button>
       </div>
 
       {tab === 'context' ? (
-        <div className="right-scroll">
+        <div className="right-scroll" role="tabpanel" id="context-panel" aria-labelledby="context-tab">
           <section className="context-section">
             <div className="section-heading">
               <span>
@@ -1057,8 +1090,8 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
             )}
           </section>
         </div>
-      ) : (
-        <div className="right-scroll source-list">
+      ) : tab === 'sources' ? (
+        <div className="right-scroll source-list" role="tabpanel" id="sources-panel" aria-labelledby="sources-tab">
           {sources.map((source, index) => (
             <a
               href={source.url}
@@ -1090,11 +1123,21 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
             </p>
           )}
         </div>
-      )}
+      ) : null}
+
+      {graphVisited && <div className="graph-tab-panel" role="tabpanel" id="graph-panel"
+        aria-labelledby="graph-tab" hidden={tab !== 'graph'}>
+        <Suspense fallback={<div className="graph-module-loading" role="status">
+          <LoaderCircle className="spin" size={20}/> Loading graph…
+        </div>}>
+          <SourceGraph roomId={snapshot.id} token={session.token} revision={snapshot.research_revision}
+            active={tab === 'graph'} drawerOpen={open}/>
+        </Suspense>
+      </div>}
 
       <footer>
         <BookOpen size={14}/>
-        Sources link to original publications
+        {tab === 'graph' ? 'Trace queries, shared sources, and citations' : 'Sources link to original publications'}
       </footer>
     </aside>
   );

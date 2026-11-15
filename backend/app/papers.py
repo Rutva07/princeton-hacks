@@ -35,7 +35,7 @@ def abstract_from_index(index):
 async def search_papers(query, limit=8):
     # OpenAlex /works provides verified metadata, abstract when available.
     params={'search':query,'per-page':limit,
-            'select':'id,title,publication_year,authorships,doi,primary_location,abstract_inverted_index,cited_by_count,type,open_access'}
+            'select':'id,title,publication_year,authorships,doi,primary_location,abstract_inverted_index,cited_by_count,type,open_access,referenced_works'}
     if settings.openalex_email:params['mailto']=settings.openalex_email
     try:
         async with httpx.AsyncClient(timeout=12,follow_redirects=True,headers={'User-Agent':'CausalForge-HackPrinceton/1.0 (literature demo)'}) as client:
@@ -51,6 +51,7 @@ async def search_papers(query, limit=8):
                 'authors':authors, 'url':url, 'summary':abstract_from_index(w.get('abstract_inverted_index')),
                 'method':'Requires full-paper verification', 'origin':'openalex',
                 'citation_count':w.get('cited_by_count',0),'work_type':w.get('type'),
+                'doi':w.get('doi'),'referenced_works':w.get('referenced_works'),
                 'open_access':bool((w.get('open_access') or {}).get('is_oa')),
                 'evidence_level':'OpenAlex metadata/abstract; citation count is contextual, not a quality score'})
         if papers:return papers, 'openalex'

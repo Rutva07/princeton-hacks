@@ -126,6 +126,34 @@ transactionally. Sources are deduplicated by URL within each room, keeping metad
 from the newest job that includes that URL. Search result limits and compute budgets
 remain in place.
 
+## Source dependency graph
+
+The **Graph** tab beside Context and Sources connects each research query to its
+retrieved sources. Sources are shared nodes, matched by known OpenAlex work ID or
+normalized URL. Solid green arrows mean “found for this query”; dashed orange
+arrows point from a paper to another room source that it cites. Citation links use
+OpenAlex's `referenced_works` metadata; similarity, citation counts, and generated
+answer text are never treated as evidence of a citation. Missing reference data is
+shown explicitly and does not mean a paper has no citations.
+
+Drag the background to pan, use scroll/pinch or the zoom controls, and use **Fit
+graph to view** to reset the viewport. Select nodes to inspect full titles and open
+original sources, or focus on a single query. **Expand graph** opens a larger dialog
+with a minimap; Escape closes it. The layout adapts to the sidebar and mobile view.
+
+The graph is fetched only when its tab opens. The graph library is loaded separately
+from the initial chat bundle. `GET /api/rooms/{room_id}/source-graph?limit=8&cursor=...`
+requires room membership and returns `nodes`, `edges`, `query_total`, `has_more`, and
+`next_cursor`. **Load older queries** adds pages without duplicating sources or
+edges. Only citations between sources already used in the room are included; a
+cited source can appear before its originating query's older page has been loaded.
+
+On startup, saved paper metadata is indexed once. New OpenAlex searches retain
+reference lists. Opening a graph can fill missing references for older OpenAlex
+papers using batched requests, with a timeout and retry cooldown. The provenance
+graph remains available if OpenAlex is unavailable. No new API keys are required by
+the application, and graph requests do not invoke the language model.
+
 ## Tests
 
 ```bash
@@ -133,6 +161,7 @@ cd backend
 ../.venv/bin/python -m pytest -q
 
 cd ../frontend
+npm test
 npm run build
 ```
 
@@ -145,6 +174,7 @@ backend/app/main.py         REST + WebSocket endpoints and authorization
 backend/app/realtime.py     rooms, presence, replay, messaging, agent event bridge
 backend/app/storage.py      SQLite jobs, sessions, rooms, messages, ordered events
 backend/app/research_store.py indexed research history, backfill, cursor pagination
+backend/app/source_graph.py query/source graph and recorded citation relationships
 backend/app/deepagent.py    actual LangChain Deep Agents and trusted tools
 backend/app/workflow.py     literature → proposal → approval → execution
 backend/app/experiment.py   traffic assignment + PyTorch flow-matching simulations

@@ -76,7 +76,8 @@ async def answer_with_langchain(question: str, room_context: list[dict]):
         papers,source=await search_papers(query,limit=10)
         state['queries'].append({'query':query,'source':source})
         for paper in papers:state['papers'][paper['id']]=paper
-        return json.dumps(papers,ensure_ascii=False)[:24000]
+        return json.dumps([{key:value for key,value in paper.items() if key!='referenced_works'}
+                           for paper in papers],ensure_ascii=False)[:24000]
 
     @tool
     async def search_general_web(query: str) -> str:
