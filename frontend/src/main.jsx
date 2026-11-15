@@ -455,8 +455,19 @@ function LeftSidebar({
           <strong>{session.participant.display_name}</strong>
           <small>Researcher</small>
         </div>
-        <button onClick={onProfile} title="Edit display name">Edit name</button>
-        <button onClick={onLogout}>Sign out</button>
+        <details className="profile-menu">
+          <summary className="profile-toggle" aria-label="Account options"><Menu size={18}/></summary>
+          <div className="profile-options">
+            <button type="button" onClick={event => {
+              event.currentTarget.closest('details').open = false;
+              onProfile();
+            }}>Edit name</button>
+            <button type="button" onClick={event => {
+              event.currentTarget.closest('details').open = false;
+              onLogout();
+            }}>Sign out</button>
+          </div>
+        </details>
       </div>
     </aside>
   );
@@ -1281,7 +1292,6 @@ function App() {
 
     function apply(event) {
       if (stopped || selectedRoomRef.current !== roomId) return;
-      console.log('WEBSOCKET EVENT:', event.type, event.payload);
       if (event.sequence) {
         sequenceRef.current = Math.max(
           sequenceRef.current,
@@ -1346,6 +1356,7 @@ function App() {
         'experiment.completed',
         'experiment.failed',
         'agent.completed',
+        'participant.updated',
         'room.join',
         'room.leave'
       ].includes(event.type)) {
@@ -1587,5 +1598,25 @@ function App() {
   );
 }
 
-createRoot(document.getElementById('root')).render(<App/>);
+class AppErrorBoundary extends React.Component {
+  state = {failed: false};
+
+  static getDerivedStateFromError() {
+    return {failed: true};
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <main className="loading-room" role="alert">
+        The workspace could not render.
+        <button type="button" onClick={() => window.location.reload()}>Reload workspace</button>
+      </main>
+    );
+  }
+}
+
+createRoot(document.getElementById('root')).render(
+  <AppErrorBoundary><App/></AppErrorBoundary>
+);
 

@@ -236,5 +236,21 @@ body,
 .right-tabs button:focus-visible { outline: 2px solid var(--green); outline-offset: -3px; }
 
 .room-actions { display:flex; gap:8px; padding:8px 16px; flex-wrap:wrap; font-size:12px; }
-.room-actions button, .profile button { border:1px solid #ccd5cf; border-radius:5px; padding:5px 8px; background:transparent; color:inherit; font-size:11px; cursor:pointer; }
+.room-actions button { border:1px solid #ccd5cf; border-radius:5px; padding:5px 8px; background:transparent; color:inherit; font-size:11px; cursor:pointer; }
 .agent-mode { font-size:11px; color:#57695e; margin-left:8px; }
+
+.profile-menu { position: relative; flex: none; }
+.profile-menu button { border: 0; background: transparent; color: inherit; cursor: pointer; }
+.profile-toggle::-webkit-details-marker { display: none; }
+.profile-toggle { cursor: pointer; list-style: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; }
+.profile-toggle:hover, .profile-options button:hover { background: #303e36; }
+.profile-options {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 5;
+  min-width: 132px; padding: 4px; border: 1px solid #3c4b42;
+  border-radius: 8px; background: #233029; color: #eef3ed;
+  box-shadow: 0 6px 20px #0004;
+}
+.profile-options button {
+  display: block; width: 100%; padding: 8px 10px; text-align: left;
+  font-size: 12px; border-radius: 5px;
+}

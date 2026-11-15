@@ -10,7 +10,10 @@ async def handle(message):
     text = message['text'].strip()
     space = message['space_id']
     async def reply(content):
-        await send_message(space, message['sender_id'], content, f'room-{message["id"]}')
+        await asyncio.wait_for(
+            send_message(space, message["sender_id"], content, f'room-{message["id"]}'),
+            timeout=15,
+        )
 
     join = re.fullmatch(r'JOIN\s+([a-f0-9]{10})\s+([a-f0-9]{6})', text, re.I)
     with storage.connection() as db:
@@ -48,14 +51,18 @@ async def handle(message):
             db.execute('DELETE FROM room_members WHERE room_id=? AND participant_id=?', (room_id,link['participant_id']))
         await reply('Disconnected from the room.')
         return True
-    if text.upper().startswith('NAME '):
-        name = ' '.join(text[5:].split())
+    name_command = re.fullmatch(r'NAME(?:\s+(.+))?', text, re.I | re.S)
+    if name_command:
+        name = ' '.join((name_command.group(1) or '').split())
         if not 2 <= len(name) <= 48:
             await reply('Use NAME followed by a name of 2–48 characters.')
             return True
         with storage.connection() as db:
             db.execute('UPDATE participants SET display_name=? WHERE id=?', (name,link['participant_id']))
-        await reply(f'Your room name is now {name}.')
+        await publish(room_id, 'participant.updated', {
+            'participant': storage.get_participant(link['participant_id']),
+        })
+        await reply(f'Your room name is now {name}. Send your question as a new message here.')
         return True
     participant = storage.get_participant(link['participant_id'])
     command = re.fullmatch(r'(APPROVE|REJECT)(?:\s+([a-f0-9]{10}))?', text, re.I)
@@ -98,10 +105,12 @@ async def relay(room_id, message):
         return
     with storage.connection() as db:
         links = db.execute('SELECT * FROM photon_links WHERE room_id=?', (room_id,)).fetchall()
-    for link in links:
+    async def deliver(link):
         try:
             await asyncio.wait_for(send_message(link['space_id'],link['agent_id'],message['content'],
                                f'room-{message["id"]}-{link["space_id"]}'), timeout=15)
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning('Room message delivery failed: %s',type(exc).__name__)
+
+    await asyncio.gather(*(deliver(link) for link in links))

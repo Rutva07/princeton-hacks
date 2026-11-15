@@ -57,9 +57,12 @@ def test_three_phones_join_one_room_and_receive_shared_result():
                 assert send.await_count==3
                 assert {call.args[0] for call in send.await_args_list}=={f'test-space-{i}' for i in range(3)}
                 msg={'id':'question-1','space_id':'test-space-0','sender_id':'agent-0','text':'Propose a traffic experiment'}
+                await photon_rooms.handle({**msg, 'id': 'name-1', 'text': 'NAME\tTest Teammate'})
+                assert 'Your room name is now Test Teammate.' in send.await_args.args[2]
                 await photon_rooms.handle(msg)
                 await photon_rooms.handle(msg)
                 assert start.call_count==1
+                assert start.call_args.args[1]['display_name']=='Test Teammate'
                 assert start.call_args.args[0]==room['id']
                 job=storage.add_job('Traffic experiment test question',30,room_id=room['id'])
                 storage.set_status(job,'awaiting_approval')

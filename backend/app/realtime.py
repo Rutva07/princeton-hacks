@@ -14,7 +14,7 @@ from . import storage
 from .workflow import approve, research
 
 EventType = Literal[
-    'room.join','room.leave','message.created','message.history','typing.started',
+    'room.join','room.leave','participant.updated','message.created','message.history','typing.started',
     'typing.stopped','presence.updated','agent.started','agent.thinking',
     'agent.tool_started','agent.tool_completed','agent.completed',
     'experiment.proposed','experiment.started','experiment.progress',
