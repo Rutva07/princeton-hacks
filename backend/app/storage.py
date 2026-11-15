@@ -66,6 +66,8 @@ def init_db():
         columns={r['name'] for r in c.execute('PRAGMA table_info(jobs)')}
         if 'room_id' not in columns:
             c.execute('ALTER TABLE jobs ADD COLUMN room_id TEXT')
+        from . import research_store
+        research_store.initialize(c)
 
 def add_job(prompt, budget=90, origin=None, room_id=None):
     job_id = uuid.uuid4().hex[:10]
@@ -78,12 +80,18 @@ def add_job(prompt, budget=90, origin=None, room_id=None):
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''',
             (job_id, prompt, 'researching', settings.research_mode, budget, now, now,
              origin.get('space_id'), origin.get('sender_id'), origin.get('message_id'), None, room_id))
+        from .research_store import changed
+        changed(c,room_id)
     emit(job_id, 'queued', 'Supervisor', 'Research request received; assembling literature evidence.')
     return job_id
 
 def set_status(job_id, status, error=None):
     with _lock, connection() as c:
         cur=c.execute('UPDATE jobs SET status=?,updated_at=?,error=? WHERE id=?', (status,utcnow(),error,job_id))
+        job=c.execute('SELECT room_id FROM jobs WHERE id=?',(job_id,)).fetchone()
+        if job:
+            from .research_store import changed
+            changed(c,job['room_id'])
         return cur.rowcount > 0
 
 def get_job(job_id):
@@ -111,6 +119,11 @@ def put_artifact(job_id, name, data):
     content = json.dumps(data, ensure_ascii=False, indent=2) if not isinstance(data,str) else data
     with _lock, connection() as c:
         c.execute('INSERT OR REPLACE INTO artifacts VALUES(?,?,?,?)', (job_id,name,content,utcnow()))
+        from . import research_store
+        if name in research_store.ARTIFACTS:
+            job=c.execute('SELECT * FROM jobs WHERE id=?',(job_id,)).fetchone()
+            if job:
+                research_store.index_artifact(c,dict(job),name,json.loads(content))
     workspace = settings.data_dir/'jobs'/job_id
     workspace.mkdir(parents=True,exist_ok=True)
     (workspace/name).write_text(content,encoding='utf-8')
@@ -281,11 +294,6 @@ def latest_room_sequence(room_id: str) -> int:
     with connection() as c:
         row=c.execute('SELECT MAX(seq) n FROM room_events WHERE room_id=?',(room_id,)).fetchone()
     return int(row['n'] or 0)
-
-def list_room_jobs(room_id: str):
-    with connection() as c:
-        return [dict(r) for r in c.execute('''SELECT * FROM jobs WHERE room_id=?
-            ORDER BY created_at DESC LIMIT 30''',(room_id,))]
 
 def latest_room_job(room_id: str, statuses: tuple[str,...] = ()): 
     sql='SELECT * FROM jobs WHERE room_id=?'

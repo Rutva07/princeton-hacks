@@ -102,6 +102,30 @@ Server events include:
 
 Every persisted event carries an event ID, room ID, UTC timestamp, monotonic database sequence, and typed payload. The server derives room and participant identity from the authenticated socket; payload-supplied identity fields are ignored.
 
+## Research history pagination
+
+Sources, experiments, hypotheses, and discoveries have no total display cap. Each list
+loads 20 records initially and offers **Load more** until its history is exhausted.
+Sources are fetched when their tab opens; loaded tabs are cached until research changes.
+
+Authenticated room members can request any list using
+`GET /api/rooms/{room_id}/{kind}?limit=20&cursor=...`, where `kind` is `sources`,
+`experiments`, `hypotheses`, or `discoveries`. Responses contain `items`, `has_more`,
+and `next_cursor`. Omit `cursor` for the first page and pass `next_cursor` unchanged
+for the next one. Page sizes may be 1–100; this bounds individual requests, not the
+total accessible history. Cursors belong to one room and list.
+
+The room snapshot returns `research_counts`, `research_revision`, `active_experiment`,
+and `message_jobs` rather than full research lists. Research completion refreshes
+the lists' first pages. Chat and model-context limits are separate and unchanged.
+
+On backend startup, an idempotent migration indexes existing research artifacts,
+including source metadata retained in `papers.json` and web results in `review.json`
+that former reading-list caps omitted. Subsequent artifact writes update the index
+transactionally. Sources are deduplicated by URL within each room, keeping metadata
+from the newest job that includes that URL. Search result limits and compute budgets
+remain in place.
+
 ## Tests
 
 ```bash
@@ -120,6 +144,7 @@ The suite covers REST compatibility, room permissions, WebSocket sync, payload a
 backend/app/main.py         REST + WebSocket endpoints and authorization
 backend/app/realtime.py     rooms, presence, replay, messaging, agent event bridge
 backend/app/storage.py      SQLite jobs, sessions, rooms, messages, ordered events
+backend/app/research_store.py indexed research history, backfill, cursor pagination
 backend/app/deepagent.py    actual LangChain Deep Agents and trusted tools
 backend/app/workflow.py     literature → proposal → approval → execution
 backend/app/experiment.py   traffic assignment + PyTorch flow-matching simulations

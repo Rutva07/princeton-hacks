@@ -95,35 +95,12 @@ async def publish_message(room_id: str, content: str, kind='text', job_id=None):
 def room_snapshot(room_id: str, participant_id: str):
     room=storage.get_room(room_id,participant_id)
     if not room:return None
-    jobs=storage.list_room_jobs(room_id)
-    experiments=[]
-    hypotheses=[]
-    sources=[]
-    discoveries=[]
-    seen_sources=set()
-    for job in jobs:
-        artifacts=storage.get_artifacts(job['id'])
-        if job['status'] not in ('answering','answered'):
-            experiments.append({**job,'results':artifacts.get('results.json')})
-        for recipe in artifacts.get('pipelines.json',[]):
-            hypotheses.append({'id':f"{job['id']}-{recipe.get('id','proposal')}",
-                'job_id':job['id'],'title':recipe.get('name'),'description':recipe.get('rationale'),
-                'status':'tested' if job['status']=='completed' else 'proposed'})
-        for source in artifacts.get('reading_list.json',[]):
-            if source.get('url') not in seen_sources:
-                seen_sources.add(source.get('url'));sources.append(source)
-        result=artifacts.get('results.json')
-        if result:
-            discoveries.append({'job_id':job['id'],'title':result.get('verdict'),
-                'detail':('Stylized traffic model; interpret as mechanism evidence, not a city forecast.'
-                          if result.get('experiment_type')=='traffic_simulation' else
-                          'One-seed toy experiment; interpret as preliminary evidence.'),
-                'created_at':job['updated_at']})
+    from . import research_store
     room['messages']=storage.get_room_messages(room_id)
-    room['experiments']=experiments
-    room['hypotheses']=hypotheses[:20]
-    room['sources']=sources[:30]
-    room['discoveries']=discoveries[:20]
+    room['message_jobs']=research_store.message_jobs(room_id,room['messages'])
+    room['research_counts'],room['research_revision']=research_store.summary(room_id)
+    recent=research_store.page(room_id,'experiments',limit=1)['items']
+    room['active_experiment']=recent[0] if recent else None
     room['latest_sequence']=storage.latest_room_sequence(room_id)
     return room
 
@@ -252,10 +229,10 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
                 storage.put_artifact(job_id,'reading_list.json',[
                     {'title':p.get('title'),'url':p.get('url'),'reason':p.get('summary','')[:350],
                      'evidence_level':p.get('evidence_level','OpenAlex metadata/abstract')}
-                    for p in papers[:12]]+[
+                    for p in papers]+[
                     {'title':item.get('title'),'url':item.get('url'),'reason':item.get('content','')[:350],
                      'evidence_level':'General web result; independently verify'}
-                    for item in web_results[:6]])
+                    for item in web_results])
                 storage.put_artifact(job_id,'review.json',answer)
                 storage.set_status(job_id,'answered')
                 await publish(room_id,'agent.tool_completed',{'job_id':job_id,
@@ -284,7 +261,7 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
             papers=artifacts.get('papers.json',[])
             recipes=artifacts.get('pipelines.json',[])
             await publish(room_id,'experiment.proposed',{'job_id':job_id,'title':job['prompt'],
-                'status':'awaiting_approval','sources':papers[:8],'pipelines':recipes})
+                'status':'awaiting_approval','pipelines':recipes})
             review=artifacts.get('review.json',{})
             synthesis=review.get('text','').strip()
             summary=((synthesis+'\n\n') if synthesis else '')+(

@@ -192,3 +192,39 @@ body,
 .right-sidebar .source-list a p {
   overflow-wrap: anywhere;
 }
+
+.research-pagination { padding: 8px 0 4px; }
+.research-pagination p {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 9px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.research-pagination p:empty { display: none; }
+.research-pagination [role="alert"] { color: #a34f42; }
+.research-pagination button {
+  min-height: 36px;
+  width: 100%;
+  border: 1px solid #cddbd2;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #e4f1e9;
+  color: #1e654e;
+  font-size: 10px;
+  font-weight: 600;
+}
+.research-pagination button:hover { background: #d9e9df; }
+.research-pagination button:focus-visible { outline: 2px solid #2f9671; outline-offset: 2px; }
+.past-experiments .research-pagination { padding: 8px 4px; }
+.past-experiments .research-pagination p { color: #a9b4ae; }
+.past-experiments .research-pagination [role="alert"] { color: #f0a58e; }
+.past-experiments .research-pagination button {
+  background: #263a2f;
+  border-color: #466653;
+  color: #e1eee6;
+}
+.past-experiments .research-pagination button:hover { background: #314b3d; }

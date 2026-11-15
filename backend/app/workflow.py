@@ -67,7 +67,7 @@ async def research(job_id):
         storage.put_artifact(job_id,'review.json',review)
         storage.put_artifact(job_id,'reading_list.json',[
            {'title':p['title'],'url':p['url'],'reason':p.get('summary','')[:250],
-            'evidence_level':p.get('evidence_level','')} for p in papers[:8]])
+            'evidence_level':p.get('evidence_level','')} for p in papers])
         storage.emit(job_id,'review','Scientific Critic','Approval required before using compute. Real results do not exist yet.')
         storage.set_status(job_id,'awaiting_approval')
         await notify(job_id,f'CausalForge found {len(papers)} sources and proposed two small '

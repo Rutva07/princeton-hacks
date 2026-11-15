@@ -1,12 +1,13 @@
 """CausalForge REST API, authenticated WebSockets, and optional Photon adapter."""
 import asyncio
 import re
+from typing import Literal
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from .config import settings
-from . import storage
+from . import storage, research_store
 from .workflow import research, approve
 from .photon import enabled, polling_loop, send_message
 from .realtime import (announce_presence, handle_socket_event, manager,
@@ -112,6 +113,18 @@ async def room_detail(room_id:str,participant=Depends(bearer_token)):
     snapshot=room_snapshot(room_id,participant['id'])
     if not snapshot:raise HTTPException(403,'Room membership required')
     return snapshot
+
+@app.get('/api/rooms/{room_id}/{kind}')
+async def room_research(room_id:str,kind:Literal['sources','experiments','hypotheses','discoveries'],
+                        limit:int=Query(default=20,ge=1,le=100),
+                        cursor:str | None=Query(default=None,max_length=4096),
+                        participant=Depends(bearer_token)):
+    if not storage.is_room_member(room_id,participant['id']):
+        raise HTTPException(403,'Room membership required')
+    try:
+        return research_store.page(room_id,kind,limit,cursor)
+    except ValueError as exc:
+        raise HTTPException(400,str(exc)) from exc
 
 @app.websocket('/ws/rooms/{room_id}')
 async def room_socket(websocket:WebSocket,room_id:str,token:str='',since:int=0):

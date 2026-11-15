@@ -2,6 +2,9 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import MarkdownMessage from './MarkdownMessage.jsx';
+import ResearchPagination from './ResearchPagination.jsx';
+import {useResearchPage} from './useResearchPage.js';
+import {request} from './api.js';
 import {
   Activity, ArrowRight, Atom, Beaker, BookOpen, Check, Circle, CircleAlert,
   FlaskConical, Hash, History, Link2, LoaderCircle, Menu, PanelRightClose,
@@ -9,7 +12,6 @@ import {
 } from 'lucide-react';
 import './style.css';
 
-const API = '/api';
 const sessionKey = 'causalforge.session';
 
 const initials = name => (name || '?')
@@ -25,26 +27,6 @@ const time = value => new Intl.DateTimeFormat([], {
 }).format(new Date(value));
 
 const eventId = () => crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-
-async function request(path, {token, ...options} = {}) {
-  const response = await fetch(API + path, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? {Authorization: `Bearer ${token}`} : {})
-    }
-  });
-
-  if (!response.ok) {
-    let data = {};
-    try {
-      data = await response.json();
-    } catch {}
-    throw new Error(data.detail || 'Request failed');
-  }
-
-  return response.json();
-}
 
 function Avatar({person, ai = false, size = 'md'}) {
   return (
@@ -362,9 +344,9 @@ function InviteDialog({room, onClose}) {
 
 function LeftSidebar({
   rooms, roomId, setRoomId, onDialog, session,
-  snapshot, mobileOpen, setMobileOpen
+  experimentsPage, experimentCount, mobileOpen, setMobileOpen
 }) {
-  const experiments = snapshot?.experiments || [];
+  const experiments = experimentsPage.items;
 
   return (
     <aside className={`left-sidebar ${mobileOpen ? 'mobile-open' : ''}`}>
@@ -433,7 +415,7 @@ function LeftSidebar({
 
       <div className="past-experiments">
         {experiments.length ? (
-          experiments.slice(0, 4).map(item => (
+          experiments.map(item => (
             <div className="past-row" key={item.id}>
               <span className={`past-icon ${item.status}`}>
                 <Beaker size={14}/>
@@ -450,6 +432,7 @@ function LeftSidebar({
             Experiments from this room will appear here.
           </p>
         )}
+        <ResearchPagination page={experimentsPage} label="experiments" total={experimentCount}/>
       </div>
 
       <div className="profile">
@@ -855,7 +838,7 @@ function CenterChat({
             currentUser={session.participant}
             job={
               message.job_id
-                ? snapshot?.experiments?.find(x => x.id === message.job_id)
+                ? snapshot?.message_jobs?.[message.job_id]
                 : null
             }
             onRun={() => sendMessage('@chatbot run the experiment.')}
@@ -915,27 +898,17 @@ function CenterChat({
   );
 }
 
-function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
+function RightSidebar({snapshot, session, open, onClose, sendMessage, activity}) {
   const [tab, setTab] = useState('context');
-    useEffect(() => {
-      console.log('ROOM SNAPSHOT:', snapshot);
-      console.log('EXPERIMENTS:', snapshot?.experiments);
-      console.log('SOURCES:', snapshot?.sources);
-    }, [snapshot]);
-
-  const experiments = snapshot?.experiments || [];
-
-  // Select the most recently created experiment,
-  // including failed and completed experiments.
-  const active = [...experiments].sort((a, b) => {
-    const timeA = Date.parse(a.created_at || '') || 0;
-    const timeB = Date.parse(b.created_at || '') || 0;
-
-    return timeB - timeA;
-  })[0] || null;
-  const sources = snapshot?.sources || [];
-  const hypotheses = snapshot?.hypotheses || [];
-  const discoveries = snapshot?.discoveries || [];
+  const scope = {roomId: snapshot.id, token: session.token, revision: snapshot.research_revision};
+  const sourcesPage = useResearchPage({...scope, kind: 'sources', enabled: tab === 'sources'});
+  const hypothesesPage = useResearchPage({...scope, kind: 'hypotheses', enabled: tab === 'context'});
+  const discoveriesPage = useResearchPage({...scope, kind: 'discoveries', enabled: tab === 'context'});
+  const active = snapshot.active_experiment;
+  const sources = sourcesPage.items;
+  const hypotheses = hypothesesPage.items;
+  const discoveries = discoveriesPage.items;
+  const counts = snapshot.research_counts || {};
 
   return (
     <aside className={`right-sidebar ${open ? 'mobile-open' : ''}`}>
@@ -965,7 +938,7 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
           className={tab === 'sources' ? 'active' : ''}
           onClick={() => setTab('sources')}
         >
-          Sources <span>{sources.length}</span>
+          Sources <span>{counts.sources || 0}</span>
         </button>
       </div>
 
@@ -1029,10 +1002,10 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
               <span>
                 <Zap size={14}/> HYPOTHESES
               </span>
-              <small>{hypotheses.length}</small>
+              <small>{counts.hypotheses || 0}</small>
             </div>
 
-            {hypotheses.slice(0, 5).map((item, index) => (
+            {hypotheses.map((item, index) => (
               <div className="hypothesis" key={item.id}>
                 <span>
                   H{String(index + 1).padStart(2, '0')}
@@ -1047,7 +1020,9 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
               </div>
             ))}
 
-            {!hypotheses.length && (
+            <ResearchPagination page={hypothesesPage} label="hypotheses" total={counts.hypotheses}/>
+
+            {!hypotheses.length && !hypothesesPage.loading && !hypothesesPage.error && (
               <p className="context-empty">
                 Testable hypotheses will be pinned here.
               </p>
@@ -1059,7 +1034,7 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
               <span>
                 <Sparkles size={14}/> DISCOVERIES
               </span>
-              <small>{discoveries.length}</small>
+              <small>{counts.discoveries || 0}</small>
             </div>
 
             {discoveries.map(item => (
@@ -1073,7 +1048,9 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
               </div>
             ))}
 
-            {!discoveries.length && (
+            <ResearchPagination page={discoveriesPage} label="discoveries" total={counts.discoveries}/>
+
+            {!discoveries.length && !discoveriesPage.loading && !discoveriesPage.error && (
               <p className="context-empty">
                 Measured findings—not guesses—will collect here.
               </p>
@@ -1105,7 +1082,9 @@ function RightSidebar({snapshot, open, onClose, sendMessage, activity}) {
             </a>
           ))}
 
-          {!sources.length && (
+          <ResearchPagination page={sourcesPage} label="sources" total={counts.sources}/>
+
+          {!sources.length && !sourcesPage.loading && !sourcesPage.error && (
             <p className="context-empty padded">
               @chatbot will add clickable research sources here.
             </p>
@@ -1134,6 +1113,10 @@ function App() {
   const [roomId, setRoomId] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
   const [messages, setMessages] = useState([]);
+  const currentSnapshot = snapshot?.id === roomId ? snapshot : null;
+  const experimentsPage = useResearchPage({roomId, token: session?.token, kind: 'experiments',
+    revision: currentSnapshot?.research_revision, enabled: Boolean(currentSnapshot)});
+
 
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -1151,6 +1134,8 @@ function App() {
   const socketRef = useRef(null);
   const reconnectRef = useRef();
   const sequenceRef = useRef(0);
+  const selectedRoomRef = useRef(roomId);
+  selectedRoomRef.current = roomId;
 
   async function loadRooms(preferred) {
     if (!session) return;
@@ -1206,13 +1191,17 @@ function App() {
   useEffect(() => {
     if (!roomId || !session) return;
 
-    request(`/rooms/${roomId}`, {token: session.token})
+    const controller = new AbortController();
+    request(`/rooms/${roomId}`, {token: session.token, signal: controller.signal})
       .then(data => {
-        setSnapshot(data);
+        if (controller.signal.aborted || selectedRoomRef.current !== roomId) return;
+        setSnapshot(current => current?.id === data.id && current.latest_sequence > data.latest_sequence
+          ? current : data);
         setMessages(data.messages || []);
         sequenceRef.current = data.latest_sequence || 0;
       })
-      .catch(err => setError(err.message));
+      .catch(err => { if (!controller.signal.aborted) setError(err.message); });
+    return () => controller.abort();
   }, [roomId, session]);
 
   useEffect(() => {
@@ -1221,7 +1210,18 @@ function App() {
     let stopped = false;
     let attempt = 0;
 
+    function refreshSnapshot() {
+      request(`/rooms/${roomId}`, {token: session.token})
+        .then(data => {
+          if (stopped || selectedRoomRef.current !== roomId) return;
+          setSnapshot(current => current?.id === data.id && current.latest_sequence > data.latest_sequence
+            ? current : data);
+        })
+        .catch(() => {});
+    }
+
     function apply(event) {
+      if (stopped || selectedRoomRef.current !== roomId) return;
       console.log('WEBSOCKET EVENT:', event.type, event.payload);
       if (event.sequence) {
         sequenceRef.current = Math.max(
@@ -1248,9 +1248,7 @@ function App() {
         );
 
         if (message.job_id || message.sender_type === 'agent') {
-          request(`/rooms/${roomId}`, {token: session.token})
-            .then(setSnapshot)
-            .catch(() => {});
+          refreshSnapshot();
         }
       } else if (event.type === 'presence.updated') {
         setPresence(event.payload.online || []);
@@ -1300,9 +1298,7 @@ function App() {
           setActivity(null);
         }
 
-        request(`/rooms/${roomId}`, {token: session.token})
-          .then(setSnapshot)
-          .catch(() => {});
+        refreshSnapshot();
       }
     }
 
@@ -1411,7 +1407,8 @@ function App() {
         setRoomId={setRoomId}
         onDialog={setDialog}
         session={session}
-        snapshot={snapshot}
+        experimentsPage={experimentsPage}
+        experimentCount={currentSnapshot?.research_counts?.experiments || 0}
         mobileOpen={leftOpen}
         setMobileOpen={setLeftOpen}
       />
@@ -1421,9 +1418,9 @@ function App() {
           onCreate={() => setDialog('create')}
           onJoin={() => setDialog('join')}
         />
-      ) : snapshot ? (
+      ) : currentSnapshot ? (
         <CenterChat
-          snapshot={snapshot}
+          snapshot={currentSnapshot}
           messages={messages}
           session={session}
           connected={connected}
@@ -1442,9 +1439,11 @@ function App() {
         </div>
       )}
 
-      {roomId && snapshot && (
+      {roomId && currentSnapshot && (
         <RightSidebar
-          snapshot={snapshot}
+          key={roomId}
+          session={session}
+          snapshot={currentSnapshot}
           open={rightOpen}
           onClose={() => setRightOpen(false)}
           sendMessage={sendMessage}
@@ -1461,9 +1460,9 @@ function App() {
         />
       )}
 
-      {inviteOpen && snapshot && (
+      {inviteOpen && currentSnapshot && (
         <InviteDialog
-          room={snapshot}
+          room={currentSnapshot}
           onClose={() => setInviteOpen(false)}
         />
       )}
