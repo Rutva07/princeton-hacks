@@ -159,7 +159,7 @@ async def answer_with_langchain(question: str, room_context: list[dict], room_id
     agent=create_deep_agent(model=configured_model(),
         tools=[search_research_papers,search_general_web,read_room_context],
         system_prompt=(
-          'You are @chatbot, the shared CausalForge research assistant built with LangChain Deep Agents. '
+          'You are @chatbot, the shared Labthread research assistant built with LangChain Deep Agents. '
           'Answer the researcher directly and concisely. For scientific questions, you MUST call '
           'search_research_papers before making literature claims; try up to three focused query variations '
           'when the first search is weak. Use search_general_web only when current non-academic context helps. '
@@ -221,7 +221,7 @@ async def analyze_with_deepagents(job_id: str, question: str, papers: list, reci
         subagents=subagents,
         backend=FilesystemBackend(root_dir=str(work_dir),virtual_mode=True),
         system_prompt=(
-            'You are CausalForge, a rigorous scientific research supervisor. Delegate to ALL THREE specialized '
+            'You are Labthread, a rigorous scientific research supervisor. Delegate to ALL THREE specialized '
             'subagents using the task tool. You MUST use the filesystem write_file tool to create '
             '/literature_review.md, /pipeline_hypothesis.md and /critique.md in your research workspace. '
             'Retrieved metadata/abstract are NOT full-text paper analysis. '
@@ -291,7 +291,7 @@ async def run_approved_experiment_with_deepagent(job_id: str, question: str, max
             'verdict':result.get('verdict'),'limitations':result.get('limitations')})
 
     agent=create_deep_agent(model=model,tools=[execute_simulation,statistical_analysis,report_generation],
-        system_prompt=('You are the approved CausalForge experiment orchestrator. The researcher has authorized '
+        system_prompt=('You are the approved Labthread experiment orchestrator. The researcher has authorized '
           'this bounded run. You MUST call execute_simulation exactly once, then statistical_analysis, then '
           'report_generation. Never invent measurements and never reveal private reasoning. Return a concise status summary.'))
     emit(job_id,'delegation','Deep Agents experiment orchestrator','Invoking approved simulation through real backend tools.')

@@ -40,7 +40,7 @@ async def search_papers(query, limit=8):
             'select':'id,title,publication_year,authorships,doi,primary_location,abstract_inverted_index,cited_by_count,type,open_access,referenced_works'}
     if settings.openalex_email:params['mailto']=settings.openalex_email
     try:
-        async with httpx.AsyncClient(timeout=12,follow_redirects=True,headers={'User-Agent':'CausalForge-HackPrinceton/1.0 (literature demo)'}) as client:
+        async with httpx.AsyncClient(timeout=12,follow_redirects=True,headers={'User-Agent':'Labthread-HackPrinceton/1.0 (literature demo)'}) as client:
             res=await client.get('https://api.openalex.org/works',params=params)
             res.raise_for_status()
             works=res.json().get('results',[])
@@ -136,7 +136,7 @@ async def ingest_arxiv_papers(urls: list[str]):
         url=f'https://arxiv.org/abs/{arxiv_id}'
         try:
             async with httpx.AsyncClient(timeout=20,follow_redirects=True) as client:
-                r=await client.get(f'https://arxiv.org/pdf/{arxiv_id}',headers={'User-Agent':'CausalForge-HackPrinceton/1.0'})
+                r=await client.get(f'https://arxiv.org/pdf/{arxiv_id}',headers={'User-Agent':'Labthread-HackPrinceton/1.0'})
                 r.raise_for_status()
             if len(r.content)>12_000_000:continue
             doc=fitz.open(stream=r.content,filetype='pdf')

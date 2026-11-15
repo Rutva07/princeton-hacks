@@ -27,7 +27,7 @@ def pong_for(message, allowed_sender=None):
     ):
         return None
     return {'spaceId': space['id'], 'senderId': recipient['id'],
-            'content': {'type': 'text', 'format': 'plain', 'text': 'PONG from CausalForge'}}
+            'content': {'type': 'text', 'format': 'plain', 'text': 'PONG from Labthread'}}
 
 
 def scan(request, since, allowed_sender=None, *, check_only=False):

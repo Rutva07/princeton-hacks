@@ -35,7 +35,7 @@ class Settings:
     report_model_provider: str = os.getenv('REPORT_MODEL_PROVIDER', 'auto')
     report_model: str = os.getenv('REPORT_MODEL', '')
     experiment_executor: str = os.getenv('EXPERIMENT_EXECUTOR', 'docker')
-    experiment_image: str = os.getenv('EXPERIMENT_IMAGE', 'researchforge-executor:py312')
+    experiment_image: str = os.getenv('EXPERIMENT_IMAGE', 'labthread-executor:py312')
     experiment_max_runtime: int = min(300,max(30,int(os.getenv('EXPERIMENT_MAX_RUNTIME','300'))))
     experiment_memory_mb: int = min(2048,max(256,int(os.getenv('EXPERIMENT_MEMORY_MB','2048'))))
     experiment_cpu_cores: float = min(2.0,max(0.25,float(os.getenv('EXPERIMENT_CPU_CORES','2'))))

@@ -1,6 +1,6 @@
-# ResearchForge / CausalForge — Autonomous Collaborative AI Scientist
+# Labthread — Autonomous Collaborative AI Scientist
 
-ResearchForge is a WebSocket-first research workspace where any collaborator can mention `@chatbot` to ask a question, search the literature, request an experiment, or rerun a previous result. A typed LangGraph researches, plans, generates code, validates it, runs it in an isolated Docker container, evaluates measured outputs, and publishes a reproducible report. Messages, sources, stages, logs, artifacts, and results stay synchronized across browsers in a persistent room.
+Labthread is a WebSocket-first research workspace where any collaborator can mention `@chatbot` to ask a question, search the literature, request an experiment, or rerun a previous result. A typed LangGraph researches, plans, generates code, validates it, runs it in an isolated Docker container, evaluates measured outputs, and publishes a reproducible report. Messages, sources, stages, logs, artifacts, and results stay synchronized across browsers in a persistent room.
 
 The default local mode is fully functional without an LLM or messaging provider. Photon is an optional adapter and is disabled by default.
 
@@ -50,9 +50,9 @@ The first visit creates an opaque 30-day local bearer session. Create a room and
 1. Researcher A asks: `@chatbot find the key papers on whether adding a road can increase congestion.`
 2. The LangChain agent searches OpenAlex and answers with clickable papers.
 3. Researcher A asks: `@chatbot run an experiment comparing logistic regression and random forest on the breast cancer dataset.`
-4. ResearchForge immediately creates a durable job and shows `researching → planning → generating → validating → running → evaluating → reporting` to everyone.
+4. Labthread immediately creates a durable job and shows `researching → planning → generating → validating → running → evaluating → reporting` to everyone.
 5. The isolated container writes measured metrics and artifacts. The room receives the result card, logs, sources, report, plot, CSV, hashes, and limitations.
-6. Researcher B asks: `@chatbot repeat the previous experiment with seed 123.` ResearchForge creates a linked version and shows metric deltas against the parent.
+6. Researcher B asks: `@chatbot repeat the previous experiment with seed 123.` Labthread creates a linked version and shows metric deltas against the parent.
 
 ML questions continue to use the bounded PyTorch two-moons flow-matching experiment retained from the original project.
 
@@ -219,4 +219,4 @@ frontend/src/style.css      responsive research-room design system
 
 ## Scientific limits
 
-ResearchForge publishes bounded experimental evidence, not universal conclusions. Retrieved metadata is not represented as full-paper reading. A reduced-scale reproduction is labeled as such. Results report the exact dataset, split, seed, runtime contract, measured metrics, artifacts, provenance, and limitations.
+Labthread publishes bounded experimental evidence, not universal conclusions. Retrieved metadata is not represented as full-paper reading. A reduced-scale reproduction is labeled as such. Results report the exact dataset, split, seed, runtime contract, measured metrics, artifacts, provenance, and limitations.

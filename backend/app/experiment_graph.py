@@ -129,7 +129,7 @@ async def planning_node(state: ResearchState):
             )
         model = get_model('planning').with_structured_output(ExperimentPlan)
         plan = await model.ainvoke(
-            'You are ResearchForge\'s scientific planner. Produce a small, executable local-CPU '
+            'You are Labthread\'s scientific planner. Produce a small, executable local-CPU '
             'experiment, not a promise. Use only network-free runtime data: scikit-learn bundled '
             'datasets or synthetic data generated in code. Maximum 300 seconds, 2048 MB RAM, 2 CPU. '
             'Never claim a faithful reproduction unless the evidence supports it. For paper requests, '

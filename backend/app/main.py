@@ -1,4 +1,4 @@
-"""CausalForge REST API, authenticated WebSockets, and optional Photon adapter."""
+"""Labthread REST API, authenticated WebSockets, and optional Photon adapter."""
 import asyncio
 import re
 from typing import Literal
@@ -108,7 +108,7 @@ async def lifespan(app):
         try:await task
         except asyncio.CancelledError:pass
 
-app=FastAPI(title='CausalForge',description='Collaborative scientific discovery with WebSockets and Deep Agents',version='0.2.0',lifespan=lifespan)
+app=FastAPI(title='Labthread',description='Collaborative scientific discovery with WebSockets and Deep Agents',version='0.2.0',lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=list(settings.cors_origins),allow_methods=['GET','POST','PATCH','DELETE'],allow_headers=['Content-Type','Authorization'])
 
 from .room_admin import install

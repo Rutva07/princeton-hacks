@@ -19,7 +19,7 @@ async def worker_loop(stop_event: asyncio.Event | None = None):
         fcntl.flock(worker_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as exc:
         worker_lock.close()
-        raise RuntimeError('Another ResearchForge experiment worker already owns the queue.') from exc
+        raise RuntimeError('Another Labthread experiment worker already owns the queue.') from exc
     storage.recover_interrupted_experiments()
     worker_id = f'{socket.gethostname()}-{os.getpid()}'
     try:

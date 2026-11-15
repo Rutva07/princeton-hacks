@@ -1,4 +1,4 @@
-# CausalForge architecture
+# Labthread architecture
 
 ## Trust boundaries
 

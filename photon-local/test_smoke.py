@@ -19,7 +19,7 @@ class PhotonSmokeTest(unittest.TestCase):
         self.assertTrue(scan(request, 'now', '+15555550100'))
         request.assert_called_with(message_id='m1', body={
             'spaceId': 'space-1', 'senderId': 'agent-1',
-            'content': {'type': 'text', 'format': 'plain', 'text': 'PONG from CausalForge'},
+            'content': {'type': 'text', 'format': 'plain', 'text': 'PONG from Labthread'},
         })
 
     def test_ignores_other_platforms_and_senders(self):

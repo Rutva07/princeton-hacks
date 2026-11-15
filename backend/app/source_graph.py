@@ -88,7 +88,7 @@ async def enrich_references(room_id,urls):
     # Batch requests instead of making one network call for every source node.
     try:
         async with httpx.AsyncClient(timeout=8,follow_redirects=True,
-                headers={'User-Agent':'CausalForge-HackPrinceton/1.0 (citation graph)'}) as client:
+                headers={'User-Agent':'Labthread-HackPrinceton/1.0 (citation graph)'}) as client:
             for offset in range(0,len(ids),50):
                 batch=ids[offset:offset+50]
                 params={'filter':'openalex:'+'|'.join(identifier.rsplit('/',1)[-1] for identifier in batch),

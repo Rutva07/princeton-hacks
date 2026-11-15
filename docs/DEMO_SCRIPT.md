@@ -1,6 +1,6 @@
-# CausalForge: 2-minute collaborative demo
+# Labthread: 2-minute collaborative demo
 
-**0:00–0:20 — A room, not a solo dashboard.** Open the same CausalForge room in three browser profiles. Send a message from each and show instant synchronization, participant presence, and the shared context panel.
+**0:00–0:20 — A room, not a solo dashboard.** Open the same Labthread room in three browser profiles. Send a message from each and show instant synchronization, participant presence, and the shared context panel.
 
 **0:20–0:45 — Ask the LangChain bot.** Researcher A asks, “@chatbot find the key papers on uncertainty estimation.” Show clickable OpenAlex citations and evidence labels.
 

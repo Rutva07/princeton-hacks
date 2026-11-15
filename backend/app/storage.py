@@ -10,7 +10,9 @@ from pathlib import Path
 from .config import settings
 
 _lock = threading.RLock()
-DB = settings.data_dir / 'researchforge.sqlite3'
+# Keep existing rooms and experiment history when upgrading from the old name.
+legacy_db = settings.data_dir / 'researchforge.sqlite3'
+DB = legacy_db if legacy_db.exists() else settings.data_dir / 'labthread.sqlite3'
 
 def utcnow():
     return datetime.now(timezone.utc).isoformat()
@@ -312,7 +314,7 @@ def _message_dict(row):
             out['sender_name']=participant['display_name']
             out['sender_color']=participant['color']
     elif out.get('sender_type')=='agent':
-        out['sender_name']='CausalForge AI'
+        out['sender_name']='Labthread AI'
         out['sender_color']='#8DE2C2'
     return out
 

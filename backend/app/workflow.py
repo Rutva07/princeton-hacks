@@ -38,11 +38,11 @@ async def research(job_id):
         recipes=plan_pipelines(job['prompt'],papers)
         storage.put_artifact(job_id,'pipelines.json',recipes)
         if any(word in job['prompt'].lower() for word in ('traffic','congestion','road','braess')):
-            scope=('CausalForge experiment scope: a deterministic four-node traffic assignment model '
+            scope=('Labthread experiment scope: a deterministic four-node traffic assignment model '
                    'testing the Braess-paradox mechanism under fixed demand. It is an explanatory toy '
                    'network, not a city forecast or a paper reproduction. Papers are from ')
         else:
-            scope=('CausalForge experiment scope: CPU-based 2D flow matching on synthetic two-moons. '
+            scope=('Labthread experiment scope: CPU-based 2D flow matching on synthetic two-moons. '
                    'The optimizer/scheduler composition is a toy proxy, not a reproduction or '
                    'validation of arbitrary retrieved papers. Papers are from ')
         storage.put_artifact(job_id,'readme.md',scope+source+'.')
@@ -94,7 +94,7 @@ async def approve(job_id, accept=True):
     storage.set_status(job_id,target)
     if not accept:
         storage.emit(job_id,'approval','Researcher','Experiment rejected; no compute executed.')
-        await notify(job_id,f'CausalForge experiment {job_id} canceled. Research artifacts remain available.','reject')
+        await notify(job_id,f'Labthread experiment {job_id} canceled. Research artifacts remain available.','reject')
         return True,'rejected'
     storage.emit(job_id,'approval','Researcher','Experiment approved. Launching isolated predefined Python runner.')
     asyncio.create_task(execute(job_id))
@@ -123,7 +123,7 @@ async def execute(job_id):
             measurements=(f'Baseline MMD²: {result["results"]["baseline"]["sample_mmd2"]}\n\n'
                           f'Candidate MMD²: {result["results"]["candidate"]["sample_mmd2"]}')
             method=f'{result["experiment"]}; {result["steps_per_recipe"]} matched steps per recipe.'
-        report=(f'# CausalForge Experimental Report\n\nQuestion: {job["prompt"]}\n\n'
+        report=(f'# Labthread Experimental Report\n\nQuestion: {job["prompt"]}\n\n'
                 f'Method: {method}\n\n{measurements}\n\nConclusion: {result["verdict"]}\n\n'
                 f'**Limitations:** {"; ".join(result["limitations"])}.\n\n'
                 f'All experiments are bounded model studies, not universal causal claims.\n')
@@ -136,7 +136,7 @@ async def execute(job_id):
         else:
             metric=(f'baseline MMD²={result["results"]["baseline"]["sample_mmd2"]}; '
                     f'candidate MMD²={result["results"]["candidate"]["sample_mmd2"]}.')
-        await notify(job_id,f'CausalForge experiment {job_id} completed. {metric} '
+        await notify(job_id,f'Labthread experiment {job_id} completed. {metric} '
                      f'{result["verdict"]} Bounded toy study.', 'results')
     except Exception as e:
         log.exception('Experiment error')

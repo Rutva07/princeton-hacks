@@ -15,7 +15,8 @@ import './style.css';
 
 const SourceGraph = lazy(() => import('./SourceGraph.jsx'));
 
-const sessionKey = 'causalforge.session';
+const sessionKey = 'labthread.session';
+const legacySessionKey = 'causalforge.session';
 
 const initials = name => (name || '?')
   .split(/\s+/)
@@ -122,7 +123,7 @@ function SignIn({onReady}) {
           <Atom size={28}/>
         </div>
 
-        <p className="kicker">CAUSALFORGE COLLABORATIVE LAB</p>
+        <p className="kicker">LABTHREAD COLLABORATIVE LAB</p>
 
         <h1>
           Discover together.
@@ -361,7 +362,7 @@ function LeftSidebar({
         <span className="brand-symbol"><Atom size={21}/></span>
 
         <div>
-          <strong>CausalForge</strong>
+          <strong>Labthread</strong>
           <small>RESEARCH COMMONS</small>
         </div>
 
@@ -1335,7 +1336,11 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity, 
 function App() {
   const [session, setSession] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem(sessionKey));
+      const current = localStorage.getItem(sessionKey);
+      const legacy = localStorage.getItem(legacySessionKey);
+      if (current === null && legacy !== null) localStorage.setItem(sessionKey, legacy);
+      if (legacy !== null) localStorage.removeItem(legacySessionKey);
+      return JSON.parse(current ?? legacy);
     } catch {
       return null;
     }
