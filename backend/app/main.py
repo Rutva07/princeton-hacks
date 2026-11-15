@@ -38,27 +38,32 @@ def bearer_token(authorization: str | None = Header(default=None)):
     return participant
 
 async def inbound_message(message):
+    from .photon_rooms import handle
+    if await handle(message):
+        return
     text=message['text']
-    command=re.fullmatch(r'\s*(APPROVE|REJECT)\s+([a-f0-9]{10})\s*',text,re.I)
+    command=re.fullmatch(r'\s*(APPROVE|REJECT)(?:\s+([a-f0-9]{10}))?\s*',text,re.I)
     if command:
-        job=storage.get_job(command.group(2).lower())
+        if command.group(2):
+            job=storage.get_job(command.group(2).lower())
+        else:
+            with storage.connection() as db:
+                row=db.execute("SELECT * FROM jobs WHERE origin_space=? AND status='awaiting_approval' ORDER BY created_at DESC LIMIT 1",(message['space_id'],)).fetchone()
+            job=dict(row) if row else None
         # Only accept approval from the same Photon Space where job originated.
         if not job or job['origin_space']!=message['space_id']:
             await send_message(message['space_id'],message['sender_id'],
                 'Job ID not found in this conversation.',f'researchforge-unknown-{message["id"]}')
             return
-        ok,state=await approve(job['id'],command.group(1).upper()=='APPROVE')
-        await send_message(message['space_id'],message['sender_id'],
-              f'Experiment {job["id"]}: {state}.',f'researchforge-decision-{message["id"]}')
+        ok,_=await approve(job['id'],command.group(1).upper()=='APPROVE')
+        if not ok:
+            await send_message(message['space_id'],message['sender_id'],
+                f'Experiment {job["id"]} is no longer awaiting approval.',
+                f'researchforge-decision-{message["id"]}')
     elif 12<=len(text)<=2000 and not re.match(r'^\s*(APPROVE|REJECT)\b',text,re.I):
         origin={'space_id':message['space_id'],'sender_id':message['sender_id'],'message_id':message['id']}
         job_id=storage.add_job(text,90,origin=origin)
-        try:
-            await send_message(message['space_id'],message['sender_id'],
-                f'CausalForge started job {job_id}. I will send a plan and ask before using compute.',
-                f'researchforge-start-{message["id"]}',parent_id=message['id'])
-        finally:
-            asyncio.create_task(research(job_id))
+        asyncio.create_task(research(job_id))
     else:
         await send_message(message['space_id'],message['sender_id'],
             'Send a research question (12–2000 characters), APPROVE <job-id>, or REJECT <job-id>.',
@@ -75,7 +80,10 @@ async def lifespan(app):
         except asyncio.CancelledError:pass
 
 app=FastAPI(title='CausalForge',description='Collaborative scientific discovery with WebSockets and Deep Agents',version='0.2.0',lifespan=lifespan)
-app.add_middleware(CORSMiddleware,allow_origins=list(settings.cors_origins),allow_methods=['GET','POST'],allow_headers=['Content-Type','Authorization'])
+app.add_middleware(CORSMiddleware,allow_origins=list(settings.cors_origins),allow_methods=['GET','POST','PATCH','DELETE'],allow_headers=['Content-Type','Authorization'])
+
+from .room_admin import install
+install(app, bearer_token)
 
 @app.get('/api/health')
 async def health():
@@ -162,26 +170,27 @@ async def room_socket(websocket:WebSocket,room_id:str,token:str='',since:int=0):
         if left:await announce_presence(room_id,left,False)
 
 @app.post('/api/jobs',status_code=201)
-async def create_job(data:CreateJob):
-    job_id=storage.add_job(data.prompt.strip(),data.budget_seconds)
+async def create_job(data:CreateJob,participant=Depends(bearer_token)):
+    room=storage.create_room(data.prompt[:80],participant['id'])
+    job_id=storage.add_job(data.prompt.strip(),data.budget_seconds,room_id=room['id'])
     storage.put_artifact(job_id,"requested_papers.json",data.paper_urls)
     asyncio.create_task(research(job_id))
     return {'id':job_id,'status':'researching'}
 
 @app.get('/api/jobs')
-async def jobs():
-    return storage.list_jobs()
+async def jobs(participant=Depends(bearer_token)):
+    return [job for job in storage.list_jobs() if storage.is_room_member(job['room_id'],participant['id'])]
 
 @app.get('/api/jobs/{job_id}')
-async def job_detail(job_id:str):
+async def job_detail(job_id:str,participant=Depends(bearer_token)):
     job=storage.get_job(job_id)
-    if not job or job['origin_space']:raise HTTPException(404,'Job not found')
+    if not job or not storage.is_room_member(job['room_id'],participant['id']):raise HTTPException(404,'Job not found')
     return {'job':job,'events':storage.get_events(job_id),'artifacts':storage.get_artifacts(job_id)}
 
 @app.post('/api/jobs/{job_id}/decision')
-async def decide(job_id:str,decision:Decision):
+async def decide(job_id:str,decision:Decision,participant=Depends(bearer_token)):
     job=storage.get_job(job_id)
-    if not job or job['origin_space']:raise HTTPException(404,'Job not found')
+    if not job or not storage.is_room_member(job['room_id'],participant['id']):raise HTTPException(404,'Job not found')
     ok,state=await approve(job_id,decision.approve)
     if not ok:raise HTTPException(409,'Experiment is not awaiting approval')
     return {'id':job_id,'status':state}

@@ -66,6 +66,10 @@ def init_db():
         columns={r['name'] for r in c.execute('PRAGMA table_info(jobs)')}
         if 'room_id' not in columns:
             c.execute('ALTER TABLE jobs ADD COLUMN room_id TEXT')
+        room_columns={r['name'] for r in c.execute('PRAGMA table_info(rooms)')}
+        if 'archived' not in room_columns:
+            c.execute('ALTER TABLE rooms ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+        c.execute('CREATE TABLE IF NOT EXISTS photon_links (space_id TEXT PRIMARY KEY, room_id TEXT NOT NULL, participant_id TEXT NOT NULL, agent_id TEXT NOT NULL)')
         from . import research_store
         research_store.initialize(c)
         from . import source_graph
@@ -197,13 +201,13 @@ def create_room(title: str, participant_id: str):
     now=utcnow()
     clean=' '.join(title.strip().split())[:80]
     with _lock, connection() as c:
-        c.execute('INSERT INTO rooms VALUES(?,?,?,?,?)',(room_id,clean,participant_id,join_code,now))
+        c.execute('INSERT INTO rooms(id,title,created_by,join_code,created_at) VALUES(?,?,?,?,?)',(room_id,clean,participant_id,join_code,now))
         c.execute('INSERT INTO room_members VALUES(?,?,?,?)',(room_id,participant_id,'owner',now))
     return get_room(room_id, participant_id)
 
 def join_room(room_id: str, participant_id: str, join_code: str):
     with _lock, connection() as c:
-        room=c.execute('SELECT * FROM rooms WHERE id=?',(room_id,)).fetchone()
+        room=c.execute('SELECT * FROM rooms WHERE id=? AND archived=0',(room_id,)).fetchone()
         if not room or not secrets.compare_digest(room['join_code'],join_code.strip().upper()):
             return None
         c.execute('INSERT OR IGNORE INTO room_members VALUES(?,?,?,?)',
@@ -212,12 +216,12 @@ def join_room(room_id: str, participant_id: str, join_code: str):
 
 def is_room_member(room_id: str, participant_id: str) -> bool:
     with connection() as c:
-        return c.execute('SELECT 1 FROM room_members WHERE room_id=? AND participant_id=?',
+        return c.execute('SELECT 1 FROM room_members m JOIN rooms r ON r.id=m.room_id WHERE m.room_id=? AND m.participant_id=? AND r.archived=0',
                          (room_id,participant_id)).fetchone() is not None
 
 def get_room(room_id: str, participant_id: str | None = None):
     with connection() as c:
-        room=c.execute('SELECT * FROM rooms WHERE id=?',(room_id,)).fetchone()
+        room=c.execute('SELECT * FROM rooms WHERE id=? AND archived=0',(room_id,)).fetchone()
         if not room:return None
         members=[dict(r) for r in c.execute('''SELECT p.id,p.display_name,p.color,m.role,m.joined_at
             FROM room_members m JOIN participants p ON p.id=m.participant_id
@@ -236,7 +240,7 @@ def list_rooms(participant_id: str):
             (SELECT COUNT(*) FROM room_members x WHERE x.room_id=r.id) member_count,
             (SELECT content FROM room_messages z WHERE z.room_id=r.id ORDER BY z.created_at DESC LIMIT 1) last_message
             FROM rooms r JOIN room_members m ON m.room_id=r.id
-            WHERE m.participant_id=? ORDER BY r.created_at DESC''',(participant_id,)).fetchall()
+            WHERE m.participant_id=? ORDER BY r.archived,r.created_at DESC''',(participant_id,)).fetchall()
     return [dict(r) for r in rows]
 
 def add_room_message(room_id: str, sender_id: str | None, sender_type: str,

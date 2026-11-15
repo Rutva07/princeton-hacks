@@ -5,6 +5,7 @@ os.environ['RESEARCH_MODE']='demo'
 os.environ['PHOTON_POLLING_ENABLED']='false'
 from fastapi.testclient import TestClient
 from app.main import app
+from app import storage
 from app.papers import DEMO_PAPERS
 
 async def stub_search(prompt,limit=8):
@@ -13,6 +14,8 @@ async def stub_search(prompt,limit=8):
 
 def test_full_experiment_with_approval():
     with patch('app.workflow.search_papers',new=stub_search), TestClient(app) as client:
+        session=storage.create_session('Test researcher')
+        client.headers['Authorization']='Bearer '+session['token']
         response=client.post('/api/jobs',json={
             'prompt':'Can we improve flow matching using AdamW and cosine scheduling?',
             'budget_seconds':45

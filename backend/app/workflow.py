@@ -64,6 +64,8 @@ async def research(job_id):
                 storage.emit(job_id,'warning','Deep Agents',f'LLM analysis failed: {type(e).__name__}: {str(e)[:250]}. Transparent fallback used.')
                 review['mode']='degraded_demo_fallback'
                 review['error']=str(e)[:250]
+        if settings.research_mode=='demo' and any(word in job['prompt'].lower() for word in ('traffic','congestion','road','braess')):
+            review['text']='Compare equilibrium travel time on the same four-node network before and after adding a connector, keeping demand fixed.'
         storage.put_artifact(job_id,'review.json',review)
         storage.put_artifact(job_id,'reading_list.json',[
            {'title':p['title'],'url':p['url'],'reason':p.get('summary','')[:250],
@@ -85,12 +87,15 @@ async def approve(job_id, accept=True):
     job=storage.get_job(job_id)
     if not job:return False,'not_found'
     if job['status']!='awaiting_approval':return False,'invalid_state'
+    target='running' if accept else 'rejected'
+    with storage._lock, storage.connection() as db:
+        changed=db.execute("UPDATE jobs SET status=?,updated_at=? WHERE id=? AND status='awaiting_approval'",(target,storage.utcnow(),job_id)).rowcount
+    if not changed:return False,'invalid_state'
+    storage.set_status(job_id,target)
     if not accept:
-        storage.set_status(job_id,'rejected')
         storage.emit(job_id,'approval','Researcher','Experiment rejected; no compute executed.')
         await notify(job_id,f'CausalForge experiment {job_id} canceled. Research artifacts remain available.','reject')
         return True,'rejected'
-    storage.set_status(job_id,'running')
     storage.emit(job_id,'approval','Researcher','Experiment approved. Launching isolated predefined Python runner.')
     asyncio.create_task(execute(job_id))
     return True,'running'

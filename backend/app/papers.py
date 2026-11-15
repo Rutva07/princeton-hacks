@@ -34,6 +34,8 @@ def abstract_from_index(index):
 
 async def search_papers(query, limit=8):
     # OpenAlex /works provides verified metadata, abstract when available.
+    if re.search(r'braess|(?:add|adding|new).{0,30}road',query,re.I):
+        query='Braess paradox traffic congestion'
     params={'search':query,'per-page':limit,
             'select':'id,title,publication_year,authorships,doi,primary_location,abstract_inverted_index,cited_by_count,type,open_access,referenced_works'}
     if settings.openalex_email:params['mailto']=settings.openalex_email

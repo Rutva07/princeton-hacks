@@ -166,7 +166,7 @@ async def analyze_with_deepagents(job_id: str, question: str, papers: list, reci
             'subagents using the task tool. You MUST use the filesystem write_file tool to create '
             '/literature_review.md, /pipeline_hypothesis.md and /critique.md in your research workspace. '
             'Retrieved metadata/abstract are NOT full-text paper analysis. '
-            'Only two flow-matching toy pipelines are supported for real execution; '
+            'Supported execution includes a four-node Braess traffic simulation and two toy flow-matching pipelines; '
             'do not imply arbitrary research prompts receive arbitrary training. '
             'Propose only truthful, source-linked claims; mark speculation as hypothesis. '
             'Experiments have not run yet; user must approve first. '
@@ -215,6 +215,7 @@ async def run_approved_experiment_with_deepagent(job_id: str, question: str, max
     def statistical_analysis() -> str:
         """Return the measured baseline/candidate statistics from the executed simulation."""
         if 'result' not in state:return 'Simulation has not run. Call execute_simulation first.'
+        state['analyzed']=True
         result=state['result']
         return json.dumps({'experiment_type':result.get('experiment_type'),
             'results':result.get('results'),'delta_mmd2':result.get('delta_mmd2_candidate_minus_baseline'),
@@ -224,6 +225,8 @@ async def run_approved_experiment_with_deepagent(job_id: str, question: str, max
     def report_generation() -> str:
         """Create a concise report grounded only in the measured result."""
         if 'result' not in state:return 'Simulation has not run. Call execute_simulation first.'
+        if not state.get('analyzed'):return 'Call statistical_analysis before report_generation.'
+        state['reported']=True
         result=state['result']
         return json.dumps({'question':question,'method':result.get('experiment'),
             'verdict':result.get('verdict'),'limitations':result.get('limitations')})
@@ -236,7 +239,7 @@ async def run_approved_experiment_with_deepagent(job_id: str, question: str, max
     await asyncio.wait_for(agent.ainvoke({'messages':[{'role':'user','content':
         f'Run the approved experiment for: {question}. Use the tools in the required order.'}]},
         config={'recursion_limit':18}),timeout=max_seconds+90)
-    if 'result' not in state:
-        raise RuntimeError('Deep Agent completed without invoking execute_simulation')
+    if not all(key in state for key in ('result','analyzed','reported')):
+        raise RuntimeError('Deep Agent did not complete simulation, analysis, and report generation')
     emit(job_id,'delegation','Deep Agents experiment orchestrator','Simulation, statistical analysis, and report tools completed.')
     return state['result']

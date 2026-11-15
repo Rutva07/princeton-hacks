@@ -89,6 +89,8 @@ async def publish(room_id: str, event_type: str, payload: dict):
 async def publish_message(room_id: str, content: str, kind='text', job_id=None):
     message,_=storage.add_room_message(room_id,None,'agent',content,kind=kind,job_id=job_id)
     await publish(room_id,'message.created',{'message':message})
+    from .photon_rooms import relay
+    await relay(room_id,message)
     return message
 
 
@@ -96,6 +98,8 @@ def room_snapshot(room_id: str, participant_id: str):
     room=storage.get_room(room_id,participant_id)
     if not room:return None
     from . import research_store
+    from .config import settings
+    room['agent_mode']=settings.research_mode
     room['messages']=storage.get_room_messages(room_id)
     room['message_jobs']=research_store.message_jobs(room_id,room['messages'])
     room['research_counts'],room['research_revision']=research_store.summary(room_id)
@@ -107,7 +111,13 @@ def room_snapshot(room_id: str, participant_id: str):
 
 async def send_initial_state(websocket: WebSocket, room_id: str, since: int):
     if since>0:
-        replay=storage.get_room_events(room_id,after=since)
+        replay=[]
+        cursor=since
+        while True:
+            batch=storage.get_room_events(room_id,after=cursor)
+            replay.extend(batch)
+            if len(batch)<250:break
+            cursor=batch[-1]['sequence']
         payload={'events':replay,'replay':True,'after_sequence':since}
     else:
         payload={'messages':storage.get_room_messages(room_id),'replay':False}
@@ -122,6 +132,9 @@ async def announce_presence(room_id: str, participant: dict, joined: bool):
 
 
 async def handle_socket_event(websocket: WebSocket, room_id: str, participant: dict, raw):
+    if not storage.is_room_member(room_id,participant['id']):
+        await websocket.close(code=4403)
+        return
     try:event=ClientEvent.model_validate(raw)
     except ValidationError as exc:
         await websocket.send_json(ephemeral_event(room_id,'error',{'code':'invalid_event','detail':str(exc)}))
@@ -189,6 +202,7 @@ async def _relay_job_events(room_id: str, job_id: str, stop_states: set[str]):
 async def _handle_agent_request(room_id: str, participant: dict, content: str,
                                 run_command: bool, experiment_requested: bool):
     async with _room_locks[room_id]:
+        if not storage.is_room_member(room_id,participant['id']):return
         if run_command:
             job=storage.latest_room_job(room_id,('awaiting_approval',))
             if not job:
@@ -266,7 +280,7 @@ async def _handle_agent_request(room_id: str, participant: dict, content: str,
             synthesis=review.get('text','').strip()
             summary=((synthesis+'\n\n') if synthesis else '')+(
                      f"I found {len(papers)} relevant sources and designed a bounded experiment proposal. "
-                     "Mention “@chatbot run the experiment” or use the Run experiment button when the room is ready.")
+                     "Reply APPROVE on iMessage, mention “@chatbot run the experiment”, or use Run experiment when ready.")
             await publish_message(room_id,summary,kind='experiment_proposal',job_id=job_id)
             await publish(room_id,'agent.completed',{'job_id':job_id,'status':'awaiting_approval'})
         else:

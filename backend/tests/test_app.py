@@ -16,6 +16,8 @@ def test_health():
 
 def test_create_approve_workflow():
     with client:
+        session=storage.create_session('Test researcher')
+        client.headers['Authorization']='Bearer '+session['token']
         r=client.post('/api/jobs',json={'prompt':'Improve flow matching generative model efficiency','budget_seconds':60})
         assert r.status_code==201
         id=r.json()['id']
@@ -26,7 +28,10 @@ def test_create_approve_workflow():
 
 def test_reject_without_ready_state():
     storage.init_db()
-    jobid=storage.add_job('A sufficiently long research question',40)
+    session=storage.create_session('Test researcher')
+    client.headers['Authorization']='Bearer '+session['token']
+    room=storage.create_room('Test research',session['participant']['id'])
+    jobid=storage.add_job('A sufficiently long research question',40,room_id=room['id'])
     r=client.post(f'/api/jobs/{jobid}/decision',json={'approve':False})
     assert r.status_code==409
 

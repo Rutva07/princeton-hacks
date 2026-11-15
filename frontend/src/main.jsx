@@ -1,4 +1,5 @@
 
+import ReportDownload from './ReportDownload.jsx';
 import React, {lazy, Suspense, useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import MarkdownMessage from './MarkdownMessage.jsx';
@@ -339,6 +340,10 @@ function InviteDialog({room, onClose}) {
           <span>ROOM <b>{room.id}</b></span>
           <span>CODE <b>{room.join_code}</b></span>
         </div>
+        <label>Connect iMessage to this room
+          <input readOnly value={`JOIN ${room.id} ${room.join_code}`} onFocus={e => e.target.select()}/>
+          <small>Text this command to your assigned Photon number. Then text NAME followed by your name.</small>
+        </label>
       </section>
     </div>
   );
@@ -346,7 +351,7 @@ function InviteDialog({room, onClose}) {
 
 function LeftSidebar({
   rooms, roomId, setRoomId, onDialog, session,
-  experimentsPage, experimentCount, mobileOpen, setMobileOpen
+  experimentsPage, experimentCount, mobileOpen, setMobileOpen, onProfile, onLogout, onRoomAction
 }) {
   const experiments = experimentsPage.items;
 
@@ -380,7 +385,7 @@ function LeftSidebar({
       </div>
 
       <nav className="room-list">
-        {rooms.map(room => (
+        {rooms.filter(room => !room.archived).map(room => (
           <button
             key={room.id}
             className={`room-row ${room.id === roomId ? 'active' : ''}`}
@@ -408,6 +413,13 @@ function LeftSidebar({
         <Link2 size={15}/> Join with invite code
       </button>
 
+      {rooms.find(room => room.id === roomId)?.role === 'owner' && <div className="room-actions">
+        <button onClick={() => onRoomAction('archive', roomId)}>Archive room</button>
+        <button onClick={() => onRoomAction('delete', roomId)}>Delete room</button>
+      </div>}
+      {rooms.filter(room => room.archived && room.role === 'owner').map(room =>
+        <div className="room-actions" key={room.id}><span>{room.title} · Archived</span>
+          <button onClick={() => onRoomAction('restore', room.id)}>Restore</button><button onClick={() => onRoomAction('delete', room.id)}>Delete</button></div>)}
       <div className="sidebar-rule"/>
 
       <div className="workspace-label">
@@ -443,7 +455,8 @@ function LeftSidebar({
           <strong>{session.participant.display_name}</strong>
           <small>Researcher</small>
         </div>
-        <span className="online-dot"/>
+        <button onClick={onProfile} title="Edit display name">Edit name</button>
+        <button onClick={onLogout}>Sign out</button>
       </div>
     </aside>
   );
@@ -768,6 +781,7 @@ function CenterChat({
           <div className="room-title-line">
             <h2>{snapshot?.title}</h2>
             <StatusPill connected={connected}/>
+            <span className="agent-mode">{snapshot.agent_mode === 'deepagents' ? 'Deep Agents configured' : 'Demo mode'}</span>
           </div>
 
           <p>
@@ -1136,6 +1150,7 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity})
       </div>}
 
       <footer>
+        {snapshot.active_experiment?.status === 'completed' && <ReportDownload roomId={snapshot.id} jobId={snapshot.active_experiment.id} token={session.token}/>}
         <BookOpen size={14}/>
         {tab === 'graph' ? 'Trace queries, shared sources, and citations' : 'Sources link to original publications'}
       </footer>
@@ -1187,13 +1202,14 @@ function App() {
       const list = await request('/rooms', {token: session.token});
       setRooms(list);
 
+      const available=list.filter(room => !room.archived);
       const chosen =
         preferred ||
-        (roomId && list.some(x => x.id === roomId)
+        (roomId && available.some(x => x.id === roomId)
           ? roomId
-          : list[0]?.id);
+          : available[0]?.id);
 
-      if (chosen) setRoomId(chosen);
+      setRoomId(chosen || null);
     } catch (err) {
       if (/session/i.test(err.message)) {
         localStorage.removeItem(sessionKey);
@@ -1365,7 +1381,12 @@ function App() {
         } catch {}
       };
 
-      ws.onclose = () => {
+      ws.onclose = event => {
+        if (event.code === 4403) {
+          stopped = true;
+          setSnapshot(null); setRoomId(null);
+          loadRooms();
+        }
         setConnected(false);
 
         if (!stopped) {
@@ -1408,6 +1429,37 @@ function App() {
     }));
   }
 
+  async function editProfile() {
+    const name = window.prompt('Your display name', session.participant.display_name);
+    if (!name) return;
+    try {
+      const participant = await request('/me', {token: session.token, method: 'PATCH', body: JSON.stringify({display_name: name})});
+      const next = {...session, participant};
+      localStorage.setItem(sessionKey, JSON.stringify(next));
+      setSession(next);
+    } catch (err) { setError(err.message); }
+  }
+
+  async function signOut() {
+    try {
+      await request('/logout', {token: session.token, method: 'POST'});
+      localStorage.removeItem(sessionKey);
+      setRoomId(null); setSnapshot(null); setSession(null);
+    } catch (err) { setError(err.message); }
+  }
+
+  async function roomAction(action, id) {
+    if (action !== 'restore' && !window.confirm(action === 'delete' ? 'Permanently delete this room, its messages and research?' : 'Archive this room? It will become unavailable to all members.')) return;
+    try {
+      await request(`/rooms/${id}${action === 'delete' ? '' : '/' + action}`,
+        {token: session.token, method: action === 'delete' ? 'DELETE' : 'POST'});
+      setSnapshot(null); setRoomId(null);
+      const list = await request('/rooms', {token: session.token});
+      setRooms(list);
+      setRoomId(list.find(room => !room.archived && room.id !== id)?.id || null);
+    } catch (err) { setError(err.message); }
+  }
+
   async function submitDialog(data) {
     setBusy(true);
     setError('');
@@ -1446,6 +1498,9 @@ function App() {
     <div className="app-shell">
       <LeftSidebar
         rooms={rooms}
+        onProfile={editProfile}
+        onLogout={signOut}
+        onRoomAction={roomAction}
         roomId={roomId}
         setRoomId={setRoomId}
         onDialog={setDialog}
