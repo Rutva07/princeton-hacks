@@ -12,8 +12,7 @@ from langgraph.graph import END, StateGraph
 
 from . import storage
 from .config import settings
-from .executor import (ALLOWED_IMPORT_ROOTS, ALLOWED_REQUIREMENTS, execute_bundle,
-                       experiment_root, repair_unused_imports, validate_bundle)
+from .executor import ALLOWED_IMPORT_ROOTS, execute_bundle, experiment_root, validate_bundle
 from .experiment_models import CodeBundle, ExperimentPlan, ResearchState
 from .experiment_templates import bundle_for_plan, deterministic_plan
 from .models import get_model, model_available
@@ -95,30 +94,6 @@ def _source_summary(sources):
     )
 
 
-def _code_contract():
-    """Share the same generation rules with repairs and fresh regeneration."""
-    return (
-        '\nCODE CONTRACT: experiment_py must contain raw executable Python only, '
-        'without Markdown fences, explanations, shell commands or patch syntax. '
-        'Import argparse, json and pathlib.Path. Implement main() and call it under '
-        'if __name__ == "__main__". Use argparse.ArgumentParser() and declare '
-        'parser.add_argument("--config", required=True) and '
-        'parser.add_argument("--output-dir", required=True). Load the config with '
-        'json.loads(Path(args.config).read_text()). Create output = Path(args.output_dir) '
-        'and output.mkdir(parents=True, exist_ok=True). '
-        'Write metrics.json (JSON object with a measured, non-empty verdict) and '
-        'run_metadata.json (completed=true and actual counts/runtime), plus every '
-        'expected artifact, under output-dir. Preserve the original user request. '
-        'Import only these roots: ' + ', '.join(sorted(ALLOWED_IMPORT_ROOTS)) + '. '
-        'Do not copy library internals or add compatibility shims; installed libraries '
-        'load their own dependencies. Use only imports actually needed by your code. '
-        'Requirements may contain only these unversioned packages: '
-        + ', '.join(sorted(ALLOWED_REQUIREMENTS)) + '. Standard-library modules '
-        'must not appear in requirements. '
-        'No network, host commands, environment access, dynamic imports, eval or exec.\n'
-    )
-
-
 async def research_node(state: ResearchState):
     _stage(state, 'researching', 'Searching the scientific literature and recording provenance.')
     (papers, source_name),(web_results,web_source)=await asyncio.gather(
@@ -180,14 +155,35 @@ async def generation_node(state: ResearchState):
         if not model_available(getattr(settings, 'coding_model_provider', 'auto')):
             raise RuntimeError('No verified code template matches this plan and no coding model is configured.')
         model = get_model('coding').with_structured_output(CodeBundle)
+        allowed_imports = ', '.join(sorted(ALLOWED_IMPORT_ROOTS))
         bundle = await model.ainvoke(
             'Generate a complete deterministic Python experiment for the validated plan.\n'
             'The Docker executor runs: python /experiment/experiment.py '
             '--config /experiment/config.json --output-dir /outputs\n'
+            'MANDATORY CONTRACT (implement all items literally):\n'
+            '1. import argparse, json and from pathlib import Path. Define main() and call it '
+            'under if __name__ == "__main__".\n'
+            '2. In main(), use argparse.ArgumentParser(), '
+            'parser.add_argument("--config", required=True), and '
+            'parser.add_argument("--output-dir", required=True).\n'
+            '3. Parse arguments, load config using json.loads(Path(args.config).read_text()), '
+            'and create output = Path(args.output_dir); output.mkdir(parents=True, exist_ok=True).\n'
+            '4. Run the actual experiment. Write a JSON OBJECT with a measured, nonempty '
+            'verdict to (output / "metrics.json"). Use json.dumps.\n'
+            '5. Write (output / "run_metadata.json") with completed=true, actual runtime '
+            'and exact requested counts. Produce every artifact named in expected_artifacts. '
+            'Do not invent results, counts, or files.\n'
+            '6. Print a concise completion record to stdout.\n'
+            'SANDBOX POLICY: generated code may import ONLY these module roots: '
+            + allowed_imports + '.\n'
+            'Do NOT import os, sys, xml, zipfile, zlib, zoneinfo, subprocess, socket, '
+            'requests, importlib, or any other module outside that list. '
+            'No network, host commands, environment secrets, dynamic imports, eval or exec. '
+            'Use pathlib for file paths. Requirements may include ONLY numpy, pandas, '
+            'scipy, scikit-learn, matplotlib, torch (unversioned); standard-library '
+            'modules must NOT appear in requirements.\n'
             'Return a complete CodeBundle. Set config to the provided plan JSON. '
-            'Use only actual computations for the scientific conclusions. Print a concise '
-            'completion record to stdout. Do not invent results, counts, or files.'
-            + _code_contract() + '\nORIGINAL USER REQUEST:\n' + state['user_request'] + '\n\nPLAN:\n'
+            'Use only actual computations for the scientific conclusions.\n\nPLAN:\n'
             + plan.model_dump_json(indent=2)
         )
     _persist_bundle_version(state,'generation',bundle)
@@ -271,28 +267,12 @@ async def debugging_node(state: ResearchState):
     retry_count = int(state.get('retry_count', 0)) + 1
     _stage(state, 'debugging', f'Diagnosing the failed bundle and preparing bounded repair {retry_count}.',
            retry_count=retry_count)
-    old_bundle = CodeBundle.model_validate(state['code_bundle'])
-    local_repair = repair_unused_imports(old_bundle)
-    plan = ExperimentPlan.model_validate(state['experiment_plan'])
-    if local_repair.experiment_py != old_bundle.experiment_py and validate_bundle(local_repair, plan).valid:
-        # No model call is needed to delete unused scaffolding imports. A changed
-        # bundle still goes through the graph's validation gate before execution.
-        _persist_bundle_version(state, f'unused_import_repair-{retry_count}', local_repair)
-        storage.add_experiment_event(state['experiment_id'], _job(state)['room_id'], 'experiment.repair_generated', {
-            'experiment_id': state['experiment_id'], 'stage': 'debugging',
-            'strategy': 'unused_import_repair', 'retry_count': retry_count,
-            'old_code_hash': hashlib.sha256(old_bundle.experiment_py.encode()).hexdigest(),
-            'new_code_hash': hashlib.sha256(local_repair.experiment_py.encode()).hexdigest(),
-            'message': 'Removed unused forbidden imports; returning changed code to validation.',
-        })
-        return _checkpoint(state, 'debugging', {
-            'code_bundle': local_repair.model_dump(), 'retry_count': retry_count, 'next_step': 'validate',
-        })
     if not model_available(getattr(settings, 'debug_model_provider', 'auto')):
         return _checkpoint(state, 'debugging', {
             'retry_count': retry_count, 'next_step': 'failed',
             'errors': list(state.get('errors', [])) + ['A repair needs a configured debug model.'],
         })
+    old_bundle = CodeBundle.model_validate(state['code_bundle'])
     model = get_model('debug').with_structured_output(CodeBundle)
     actionable={
         'validation_errors':(state.get('validation_result') or {}).get('errors',[]),
@@ -305,7 +285,6 @@ async def debugging_node(state: ResearchState):
             'metadata_contract':'completed=true plus exact requested counts',
         },
         'allowed_imports': sorted(ALLOWED_IMPORT_ROOTS),
-        'allowed_requirements': sorted(ALLOWED_REQUIREMENTS),
     }
     repaired = await model.ainvoke(
         'Repair this scientific experiment using the structured diagnostics below. Return a COMPLETE replacement '
@@ -313,9 +292,8 @@ async def debugging_node(state: ResearchState):
         'arguments, write metrics.json and run_metadata.json under output-dir, produce every expected artifact, '
         'and use only allowed imports. Do not use os, sys, xml, zipfile, zlib, or zoneinfo. '
         'Use argparse, json and pathlib for the executor interface. Preserve the scientific '
-        'procedure and exact requested counts.' + _code_contract() +
-        '\nORIGINAL USER REQUEST:\n' + state['user_request'] +
-        '\nPLAN:\n' + json.dumps(state['experiment_plan'], indent=2) +
+        'procedure and exact requested counts.\n\n'
+        'PLAN:\n' + json.dumps(state['experiment_plan'], indent=2) +
         '\n\nACTIONABLE DIAGNOSTICS:\n' + json.dumps(actionable,indent=2) +
         '\n\nCURRENT CODE:\n' + old_bundle.experiment_py
     )
@@ -328,9 +306,7 @@ async def debugging_node(state: ResearchState):
         repaired=await regeneration_model.ainvoke(
             'Regenerate this experiment FROM SCRATCH because a repair model returned unchanged invalid code. '
             'Do not reuse the previous implementation. Obey the exact executor contract and diagnostics below. '
-            'Return a complete CodeBundle.' + _code_contract() +
-            '\nORIGINAL USER REQUEST:\n' + state['user_request'] +
-            '\nPLAN:\n'+json.dumps(state['experiment_plan'],indent=2)+
+            'Return a complete CodeBundle.\n\nPLAN:\n'+json.dumps(state['experiment_plan'],indent=2)+
             '\n\nCONTRACT AND ERRORS:\n'+json.dumps(actionable,indent=2))
         new_hash=hashlib.sha256(repaired.experiment_py.encode()).hexdigest()
         strategy='targeted_regeneration'

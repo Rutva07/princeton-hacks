@@ -1,7 +1,6 @@
 """Typed contracts shared by the autonomous experiment graph and executor."""
 from __future__ import annotations
 
-import re
 from typing import Any, Literal, TypedDict
 from pydantic import BaseModel, Field, field_validator
 
@@ -64,19 +63,6 @@ class CodeBundle(BaseModel):
     requirements: list[str] = Field(default_factory=list,max_length=30)
     readme: str = Field(min_length=20,max_length=20_000)
     template: str = Field(default='generated',max_length=80)
-
-    @field_validator('experiment_py', mode='before')
-    @classmethod
-    def unwrap_python_fence(cls, value):
-        """Accept a single fenced Python file, never extract code from prose."""
-        if isinstance(value, str):
-            match = re.fullmatch(
-                r'\s*```(?:python|py)?[^\S\n]*\r?\n(.*?)\r?\n```\s*',
-                value, flags=re.DOTALL | re.IGNORECASE,
-            )
-            if match:
-                return match.group(1) + '\n'
-        return value
 
 
 class ValidationResult(BaseModel):
