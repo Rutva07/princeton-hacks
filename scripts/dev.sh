@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 trap 'kill 0 2>/dev/null || true' EXIT
 (
   cd backend
-  ../.venv/bin/python -m uvicorn app.main:app --reload --port 8000
+  ../.venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --port 8000
 ) &
 (
   cd backend
