@@ -131,6 +131,49 @@ def validate_bundle(bundle: CodeBundle, plan: ExperimentPlan) -> ValidationResul
     )
 
 
+def repair_unused_imports(bundle: CodeBundle) -> CodeBundle:
+    """Drop unused, denied top-level imports; leave referenced imports for rejection.
+
+    This is a candidate repair, not authorization to execute. The caller must
+    persist the changed source and send it through the complete validator again.
+    """
+    try:
+        tree = ast.parse(bundle.experiment_py)
+    except SyntaxError:
+        return bundle
+    # Reflective namespace lookups and deferred annotations can reference an
+    # import without an ast.Name load. Be conservative about deleting those.
+    if any(isinstance(node, ast.Call) and _call_name(node.func) in {'globals', 'locals', 'vars'}
+           for node in ast.walk(tree)):
+        return bundle
+    referenced = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            referenced.update(re.findall(r'\b[A-Za-z_]\w*\b', node.value))
+    changed = False
+    body = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            aliases = []
+            for alias in node.names:
+                root = (alias.name if isinstance(node, ast.Import) else node.module or '').split('.')[0]
+                denied = root not in ALLOWED_IMPORT_ROOTS or bool(getattr(node, 'level', 0))
+                # Future directives affect compilation even without a name use.
+                bound = alias.asname or (alias.name.split('.')[0] if isinstance(node, ast.Import) else alias.name)
+                if denied and root != '__future__' and alias.name != '*' and bound not in referenced:
+                    changed = True
+                else:
+                    aliases.append(alias)
+            if not aliases:
+                continue
+            node.names = aliases
+        body.append(node)
+    if not changed:
+        return bundle
+    tree.body = body
+    return bundle.model_copy(update={'experiment_py': ast.unparse(tree) + '\n'})
+
+
 async def docker_status():
     try:
         process = await asyncio.create_subprocess_exec(

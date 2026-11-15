@@ -45,6 +45,8 @@ The first visit creates an opaque 30-day local bearer session. Create a room and
 
 `scripts/dev.sh` starts three processes: the FastAPI/WebSocket API, the single durable LangGraph worker, and Vite. Docker Desktop must be running before building the executor image or running an autonomous experiment. The system never falls back to host execution.
 
+After pulling executor changes, rerun `bash scripts/build-executor.sh` to replace the local image. The image includes CPU-only PyTorch as well as NumPy, pandas, SciPy, scikit-learn, and Matplotlib; installing PyTorch in the backend virtual environment alone does not make it available inside experiments.
+
 ## Demo conversation
 
 1. Researcher A asks: `@chatbot find the key papers on whether adding a road can increase congestion.`
