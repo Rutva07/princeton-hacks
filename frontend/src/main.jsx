@@ -210,14 +210,10 @@ function RoomDialog({mode, onClose, onSubmit, busy}) {
         <h2>
           {mode === 'create'
             ? 'Create a research room'
-            : 'Join your collaborators'}
+            : 'Join a research room'}
         </h2>
 
-        <p>
-          {mode === 'create'
-            ? 'Name the scientific problem space your team will explore.'
-            : 'Enter the room ID and invite code shared by a member.'}
-        </p>
+        {mode !== 'create' && <p>Enter the room ID and invite code.</p>}
 
         {mode === 'create' ? (
           <label>
@@ -915,6 +911,8 @@ function CenterChat({
     }, 900);
   }
 
+  const memberCount = snapshot?.members?.length ?? 0;
+
   return (
     <main className="chat-pane">
       <header className="room-header">
@@ -930,7 +928,7 @@ function CenterChat({
           </div>
 
           <p>
-            {snapshot?.members?.length || 0} researchers · one shared LangChain agent
+            {memberCount} {memberCount === 1 ? 'researcher' : 'researchers'} · Shared AI assistant
           </p>
         </div>
 
@@ -971,15 +969,7 @@ function CenterChat({
         <div className="conversation-intro">
           <span><Atom size={22}/></span>
 
-          <p className="kicker">SHARED RESEARCH ROOM</p>
-
           <h1>{snapshot?.title}</h1>
-
-          <p>
-            Chat normally with your team. Mention <b>@chatbot</b> when
-            you want the LangChain agent to search papers, answer,
-            or work with experiments.
-          </p>
 
           <div className="invite-code">
             <Hash size={13}/>
@@ -1053,7 +1043,7 @@ function CenterChat({
           <div className="composer-hint">
             <Sparkles size={13}/>
             {' '}
-            Use @chatbot for the LangChain research agent
+            Mention @chatbot to search papers or propose an experiment.
             <span>Shift + Enter for a new line</span>
           </div>
         </div>
@@ -1098,7 +1088,6 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity, 
     <aside className={`right-sidebar ${open ? 'mobile-open' : ''}`}>
       <header>
         <div>
-          <p className="kicker">ROOM INTELLIGENCE</p>
           <h2>Research context</h2>
         </div>
 
@@ -1274,7 +1263,7 @@ function RightSidebar({snapshot, session, open, onClose, sendMessage, activity, 
 
             {!discoveries.length && !discoveriesPage.loading && !discoveriesPage.error && (
               <p className="context-empty">
-                Measured findings—not guesses—will collect here.
+                Completed experiment results appear here.
               </p>
             )}
           </section>

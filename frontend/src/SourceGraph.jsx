@@ -178,9 +178,9 @@ export default function SourceGraph({roomId, token, revision, active, drawerOpen
   if (!visible) return null;
 
   const contents = (
-    <section className={`source-graph ${expanded ? 'graph-expanded' : ''}`} aria-label="Source dependency graph">
+    <section className={`source-graph ${expanded ? 'graph-expanded' : ''}`} aria-label="Citation graph">
       <div className="graph-heading">
-        <div><span className="kicker">FOLLOW THE EVIDENCE</span><h3 id="source-graph-heading">Source dependencies</h3></div>
+        <h3 id="source-graph-heading">Citation graph</h3>
         <div className="graph-heading-actions">
           <button className="graph-icon-button" onClick={graph.refresh} disabled={graph.loading}
             aria-label="Refresh graph" title="Refresh graph"><RefreshCw size={15}/></button>
@@ -191,7 +191,9 @@ export default function SourceGraph({roomId, token, revision, active, drawerOpen
         </div>
       </div>
       <p className="graph-summary" role="status">
-        {queries.length} of {graph.query_total} queries · {sources.length} unique sources · {citationCount} citation{citationCount === 1 ? '' : 's'}
+        {queries.length}{queries.length < graph.query_total ? ' of ' + graph.query_total : ''} {graph.query_total === 1 ? 'query' : 'queries'}
+        {' · '}{sources.length} {sources.length === 1 ? 'source' : 'sources'}
+        {' · '}{citationCount} citation {citationCount === 1 ? 'link' : 'links'}
       </p>
       {queries.length > 0 && <label className="graph-query-filter">Focus on a query
         <select value={focused} onChange={event => { setFocused(event.target.value); setSelected(null); }}>
@@ -226,17 +228,15 @@ export default function SourceGraph({roomId, token, revision, active, drawerOpen
           <span className="kicker">{selectedNode.kind === 'query' ? 'SELECTED QUERY' : 'SELECTED SOURCE'}</span>
           <strong>{selectedNode.title}</strong>
           {selectedNode.authors && <p>{selectedNode.authors}</p>}
-          {selectedNode.kind === 'source' && <p>{selectedNode.citation_data === 'available'
-            ? 'Reference data available. Citation arrows connect matching sources in this room.'
-            : 'Reference data unavailable. Citation links may be missing.'}</p>}
+          {selectedNode.kind === 'source' && selectedNode.citation_data === 'unavailable' &&
+            <p>Citation data is unavailable for this paper.</p>}
           {selectedUrl && <a href={selectedUrl} target="_blank" rel="noopener noreferrer">
             Open original source <ExternalLink size={12}/></a>}
-        </> : <p>Select a node to inspect it. Drag to pan; scroll or pinch to zoom.</p>}
+        </> : <p>Select a node to see its details.</p>}
       </div>
-      <div className="graph-history">
-        <p>Citation arrows point from a paper to the source it cites. Links appear when reference data is available.</p>
-        {graph.has_more && <button onClick={graph.loadMore} disabled={graph.loading}>Load older queries</button>}
-      </div>
+      {graph.has_more && <div className="graph-history">
+        <button onClick={graph.loadMore} disabled={graph.loading}>Load older queries</button>
+      </div>}
     </section>
   );
 
